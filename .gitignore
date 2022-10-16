@@ -1,3 +1,11 @@
+.pio
+.vscode/**
+src/uzlib/src/*.o
+.history
+include/secrets.h
+lib/*
+
+
 # Prerequisites
 *.d
 
