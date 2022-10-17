@@ -37,13 +37,26 @@
 DRAM_ATTR ESP_WiFiManager g_WifiManager("NightDriverWiFi");
 #endif
 
+// processRemoteDebugCmd
+// 
+// Callback function that the debug library (which exposes a little console over telnet and serial) calls
+// in order to allow us to add custom commands.  I've added a clock reset and stats command, for example.
+
+void processRemoteDebugCmd() 
+{
+    String str = Debug.getLastCommand();
+    if (str.equalsIgnoreCase("stats"))
+    {
+        debugI("Displaying statistics....");
+    }
+}
+
 // ConnectToWiFi
 //
 // Connect to the pre-configured WiFi network.  
 //
 // BUGBUG I'm guessing this is exposed in all builds so anyone can call it and it just returns false if wifi
 // isn't being used, but do we need that?  If no one really needs to call it put the whole thing in the ifdef
-
 bool ConnectToWiFi(uint cRetries)
 {
     #if !ENABLE_WIFI
