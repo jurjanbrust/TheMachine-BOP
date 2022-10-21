@@ -5,8 +5,9 @@
 #define INCOMING_WIFI_ENABLED 0
 #define ENABLE_WEBSERVER 0
 #define STACK_SIZE (ESP_TASK_MAIN_STACK) // Stack size for each new thread
-
-
+#define LED_PIN0 14
+#define NUM_LEDS 33
+#define NUM_CHANNELS 1
 // Thread priorities
 //
 // We have a half-dozen workers and these are their relative priorities.  It might survive if all were set equal,
@@ -32,3 +33,4 @@
 #include "RemoteDebug.h"
 
 extern RemoteDebug Debug;           // Let everyone in the project know about it.  If you don't have it, delete this
+extern CRGB leds[];

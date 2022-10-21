@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>                         // For updating the flash over WiFi
 #include "network.h"                            // For WiFi credentials
-
+#include "drawing.h"
 
 //
 // Task Handles to our running threads
@@ -22,6 +22,7 @@ TaskHandle_t g_taskSocket = nullptr;
 //
 DRAM_ATTR bool g_bUpdateStarted = false;            // Has an OTA update started?
 DRAM_ATTR RemoteDebug Debug;                        // Instance of our telnet debug server
+CRGB leds[NUM_LEDS];
 
 // DebugLoopTaskEntry
 //
@@ -56,14 +57,19 @@ void IRAM_ATTR DebugLoopTaskEntry(void *)
 
 void setup() {
 
-  Serial.begin(115200);
-  if (WiFi.isConnected() == false && ConnectToWiFi(10) == false)
-  {
-      Serial.printf("Not connected");
-  }
+    Serial.begin(115200);
+    if (WiFi.isConnected() == false && ConnectToWiFi(10) == false)
+    {
+        Serial.printf("Not connected");
+    }
+    Serial.printf("Connected to WiFi");
+    debugI("Starting DebugLoopTaskEntry");
+    xTaskCreatePinnedToCore(DebugLoopTaskEntry, "Debug Loop", STACK_SIZE, nullptr, DEBUG_PRIORITY, &g_taskDebug, DEBUG_CORE);
 
-  debugI("Starting DebugLoopTaskEntry");
-  xTaskCreatePinnedToCore(DebugLoopTaskEntry, "Debug Loop", STACK_SIZE, nullptr, DEBUG_PRIORITY, &g_taskDebug, DEBUG_CORE);
+    debugI("Adding %d LEDs to FastLED.", NUM_LEDS);
+    FastLED.addLeds<WS2812B, LED_PIN0, GRB>(leds, NUM_LEDS);  // GRB ordering is typical
+
+    xTaskCreatePinnedToCore(DrawLoopTaskEntry, "Draw Loop", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
 }
 
 void loop() {
