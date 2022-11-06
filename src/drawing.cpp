@@ -7,6 +7,44 @@
 extern uint32_t           g_FPS;
 extern bool               g_bUpdateStarted;
 
+void DrawWalkingDot()
+{
+    // move up
+    for(int whiteLed = 0; whiteLed < NUM_LEDS0; whiteLed+=6) {
+        for(int i =0; i<6; i++) 
+            leds0[whiteLed+i] = CRGB::Red;
+
+        FastLED.show();
+        delay(300);
+
+        for(int i =0; i<6; i++) 
+            leds0[whiteLed+i] = CRGB::Black;
+        FastLED.show();
+    }
+
+    // Move down
+    for(int whiteLed = NUM_LEDS0; whiteLed > 0; whiteLed-=6) {
+        for(int i =0; i<6; i++) 
+            leds0[whiteLed-i] = CRGB::Red;
+
+        FastLED.show();
+        delay(300);
+
+        for(int i =0; i<6; i++) 
+            leds0[whiteLed-i] = CRGB::Black;
+        FastLED.show();
+    }
+}
+
+void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int everyNth = 10)
+{
+		for (int i = 0; i < nrOfLeds; i+= everyNth) {
+			leds1[i] = color;
+        }
+
+        FastLED.show();
+}
+
 // DrawLoopTaskEntry
 // 
 // Starting point for the draw code loop
@@ -20,37 +58,16 @@ void IRAM_ATTR DrawLoopTaskEntry(void *)
         // Loop through each of the channels and see if they have a current frame that needs to be drawn
         if (WiFi.isConnected())
         {
-            // Move a single white led 
-            for(int whiteLed = 0; whiteLed < NUM_LEDS; whiteLed++) {
-                // Turn our current led on to white, then show the leds
-                leds[whiteLed] = CRGB::White;
-
-                // Show the leds (only one of which is set to white, from above)
-                FastLED.show();
-
-                // Wait a little bit
-                delay(100);
-                Serial.printf("Led %d", whiteLed);
-                debugI("Led: %d", whiteLed);
-                // Turn our current led back to black for the next loop around
-                leds[whiteLed] = CRGB::Black;
-            }
-
-            // Move a single white led 
-            for(int whiteLed = NUM_LEDS; whiteLed > 0; whiteLed--) {
-                // Turn our current led on to white, then show the leds
-                leds[whiteLed] = CRGB::White;
-
-                // Show the leds (only one of which is set to white, from above)
-                FastLED.show();
-
-                // Wait a little bit
-                delay(100);
-                Serial.printf("Led %d", whiteLed);
-                debugI("Led: %d", whiteLed);
-                // Turn our current led back to black for the next loop around
-                leds[whiteLed] = CRGB::Black;
-            }
+            ColorFillEffect(CRGB::White, NUM_LEDS1, 1);
+            DrawWalkingDot();
+            delay(1000*6);
+            // ColorFillEffect(CRGB::Green, NUM_LEDS1, 1);
+            // delay(1000*60);
+            // ColorFillEffect(CRGB::Blue, NUM_LEDS1, 1);
+            // delay(1000*60);
+            // ColorFillEffect(CRGB::White, NUM_LEDS1, 1);
+            // delay(1000*60);
+            // ColorFillEffect(CRGB::Yellow, NUM_LEDS1, 1);
         }
         else
         {
@@ -67,3 +84,4 @@ void IRAM_ATTR DrawLoopTaskEntry(void *)
         delay(5);
     }
 }
+

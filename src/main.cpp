@@ -22,7 +22,8 @@ TaskHandle_t g_taskSocket = nullptr;
 //
 DRAM_ATTR bool g_bUpdateStarted = false;            // Has an OTA update started?
 DRAM_ATTR RemoteDebug Debug;                        // Instance of our telnet debug server
-CRGB leds[NUM_LEDS];
+CRGB leds0[NUM_LEDS0];
+CRGB leds1[NUM_LEDS1];
 
 // DebugLoopTaskEntry
 //
@@ -66,9 +67,12 @@ void setup() {
     debugI("Starting DebugLoopTaskEntry");
     xTaskCreatePinnedToCore(DebugLoopTaskEntry, "Debug Loop", STACK_SIZE, nullptr, DEBUG_PRIORITY, &g_taskDebug, DEBUG_CORE);
 
-    debugI("Adding %d LEDs to FastLED.", NUM_LEDS);
-    FastLED.addLeds<WS2812B, LED_PIN0, GRB>(leds, NUM_LEDS);  // GRB ordering is typical
+    debugI("Adding %d LEDs to FastLED.", NUM_LEDS0);
+    FastLED.addLeds<WS2812B, LED_PIN0, GRB>(leds0, NUM_LEDS0);  // been
 
+    debugI("Adding %d LEDs to FastLED.", NUM_LEDS0);
+    FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
+    FastLED.setBrightness(80);
     xTaskCreatePinnedToCore(DrawLoopTaskEntry, "Draw Loop", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
 }
 
