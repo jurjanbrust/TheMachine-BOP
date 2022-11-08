@@ -73,7 +73,9 @@ void setup() {
     debugI("Adding %d LEDs to FastLED.", NUM_LEDS0);
     FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
     FastLED.setBrightness(80);
-    xTaskCreatePinnedToCore(DrawLoopTaskEntry, "Draw Loop", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "Draw Loop one", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Draw Loop two", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryThree, "Draw Loop three", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
 }
 
 void loop() {

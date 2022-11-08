@@ -9,7 +9,7 @@
 #define NUM_CHANNELS 2
 
 #define LED_PIN0 14 // been
-#define NUM_LEDS0 8*6 // been
+#define NUM_LEDS0 8*6 + 4 + 1 // been + ogen + hart
 
 #define LED_PIN1 12 // overig
 #define NUM_LEDS1 121 // overig
