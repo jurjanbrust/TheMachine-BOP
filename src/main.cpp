@@ -22,8 +22,8 @@ TaskHandle_t g_taskSocket = nullptr;
 //
 DRAM_ATTR bool g_bUpdateStarted = false;            // Has an OTA update started?
 DRAM_ATTR RemoteDebug Debug;                        // Instance of our telnet debug server
-CRGB leds0[NUM_LEDS0];
-CRGB leds1[NUM_LEDS1];
+CRGB leds0[NUM_LEDS0];  // been
+CRGB leds1[NUM_LEDS1];  // overig
 
 // DebugLoopTaskEntry
 //

@@ -47,11 +47,90 @@ void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int ever
 
 void Heartbeat()
 {
-    leds0[NUM_LEDS0 -1] = CRGB::Red;    // hart
-    leds0[NUM_LEDS0 -2] = CRGB::Green;   // oog links
-    leds0[NUM_LEDS0 -3] = CRGB::Orange;  // oog 2e links
-    leds0[NUM_LEDS0 -4] = CRGB::Yellow;  // oog 2e rechts
-    leds0[NUM_LEDS0 -5] = CRGB::Blue;    // oog rechts
+  const uint8_t hbTable[] = {
+    25,
+    61,
+    105,
+    153,
+    197,
+    233,
+    253,
+    255,
+    252,
+    243,
+    230,
+    213,
+    194,
+    149,
+    101,
+    105,
+    153,
+    197,
+    216,
+    233,
+    244,
+    253,
+    255,
+    255,
+    252,
+    249,
+    243,
+    237,
+    230,
+    223,
+    213,
+    206,
+    194,
+    184,
+    174,
+    162,
+    149,
+    138,
+    126,
+    112,
+    101,
+    91,
+    78,
+    69,
+    62,
+    58,
+    51,
+    47,
+    43,
+    39,
+    37,
+    35,
+    29,
+    25,
+    22,
+    20,
+    19,
+    15,
+    12,
+    9,
+    8,
+    6,
+    5,
+    3
+  };
+
+#define NUM_STEPS (sizeof(hbTable)/sizeof(uint8_t)) //array size
+  //fill_solid(leds0, NUM_LEDS0, CRGB::Red);
+  // beat8 generates index 0-255 (fract8) as per getBPM(). lerp8by8 interpolates that to array index:
+  uint8_t hbIndex = lerp8by8( 0, NUM_STEPS, beat8( 60 / 2 )) ;
+  uint8_t brightness = lerp8by8( 0, 255, hbTable[hbIndex] ) ;
+  leds0[NUM_LEDS0 -1] = CRGB::Red;
+  leds0[NUM_LEDS0 -1].fadeLightBy(brightness);
+  //FastLED.setBrightness( lerp8by8( 0, 255, brightness ) ); // interpolate to max MAX_BRIGHTNESS
+  FastLED.show();
+}
+
+void Eyes()
+{
+    leds0[NUM_LEDS0 -2] = CRGB::Yellow;   // oog links
+    leds0[NUM_LEDS0 -3] = CRGB::Yellow;   // oog 2e links
+    leds0[NUM_LEDS0 -4] = CRGB::Yellow;   // oog 2e rechts
+    leds0[NUM_LEDS0 -5] = CRGB::Yellow;   // oog rechts
     FastLED.show();
 }
 
@@ -101,7 +180,7 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
         if (WiFi.isConnected())
         {
             Heartbeat();
-            delay(1000*1);
+            //delay(1000*1);
         }
         else
         {
