@@ -59,11 +59,16 @@ void IRAM_ATTR DebugLoopTaskEntry(void *)
 void setup() {
 
     Serial.begin(115200);
+    esp_log_level_set("*", ESP_LOG_WARN);        // set all components to ERROR level  
+
     if (WiFi.isConnected() == false && ConnectToWiFi(10) == false)
     {
         Serial.printf("Not connected");
     }
-    Serial.printf("Connected to WiFi");
+
+    // Re-route debug output to the serial port
+    Debug.setSerialEnabled(true);
+
     debugI("Starting DebugLoopTaskEntry");
     xTaskCreatePinnedToCore(DebugLoopTaskEntry, "Debug Loop", STACK_SIZE, nullptr, DEBUG_PRIORITY, &g_taskDebug, DEBUG_CORE);
 
@@ -73,6 +78,8 @@ void setup() {
     debugI("Adding %d LEDs to FastLED.", NUM_LEDS0);
     FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
     FastLED.setBrightness(80);
+    ColorFillEffect(CRGB::White, NUM_LEDS1, 1); // inital set to white
+
     xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "Draw Loop one", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Draw Loop two", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryThree, "Draw Loop three", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
@@ -86,6 +93,16 @@ void loop() {
               ArduinoOTA.handle();
           }
         #endif 
+
+        EVERY_N_SECONDS(5)
+        {
+            debugI("IP: %s, Mem: %u LargestBlk: %u PSRAM Free: %u/%u LED FPS: %d",
+                   WiFi.localIP().toString().c_str(),
+                   ESP.getFreeHeap(),
+                   ESP.getMaxAllocHeap(),
+                   ESP.getFreePsram(), ESP.getPsramSize(),
+                   FastLED.getFPS());
+        }
 
         delay(10);        
     }

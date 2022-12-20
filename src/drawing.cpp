@@ -10,28 +10,28 @@ extern bool               g_bUpdateStarted;
 void DrawWalkingDot()
 {
     // move up
-    for(int whiteLed = 0; whiteLed < NUM_LEDS0-6; whiteLed+=6) {
+    for(int current = 0; current < NUM_LEDS0-6; current+=6) {
         for(int i =0; i<6; i++) 
-            leds0[whiteLed+i] = CRGB::Red;
+            leds0[current+i] = CRGB::Red;
 
         FastLED.show();
         delay(300);
 
         for(int i =0; i<6; i++) 
-            leds0[whiteLed+i] = CRGB::Black;
+            leds0[current+i] = CRGB::Black;
         FastLED.show();
     }
 
     // Move down
-    for(int whiteLed = NUM_LEDS0-6; whiteLed > 0; whiteLed-=6) {
+    for(int current = NUM_LEDS0-6; current > 0; current-=6) {
         for(int i =0; i<6; i++) 
-            leds0[whiteLed-i] = CRGB::Red;
+            leds0[current-i] = CRGB::Red;
 
         FastLED.show();
         delay(300);
 
         for(int i =0; i<6; i++) 
-            leds0[whiteLed-i] = CRGB::Black;
+            leds0[current-i] = CRGB::Black;
         FastLED.show();
     }
 }
@@ -147,8 +147,9 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         // Loop through each of the channels and see if they have a current frame that needs to be drawn
         if (WiFi.isConnected())
         {
+            debugI("ColorFillEffect");
             ColorFillEffect(CRGB::White, NUM_LEDS1, 1);
-            delay(1000*6);
+            delay(1000*60);
         }
         else
         {
