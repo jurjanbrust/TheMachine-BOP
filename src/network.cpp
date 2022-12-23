@@ -2,11 +2,6 @@
 #include "network.h"
 #include <ArduinoOTA.h>             // Over-the-air helper object so we can be flashed via WiFi
 
-#if USE_WIFI_MANAGER
-#include <ESP_WiFiManager.h>
-DRAM_ATTR ESP_WiFiManager g_WifiManager("NightDriverWiFi");
-#endif
-
 // processRemoteDebugCmd
 // 
 // Callback function that the debug library (which exposes a little console over telnet and serial) calls
@@ -33,10 +28,6 @@ bool ConnectToWiFi(uint cRetries)
         return false;
     #endif
 
-#if USE_WIFI_MANAGER
-    g_WifiManager.setDebugOutput(true);
-    g_WifiManager.autoConnect("NightDriverWiFi");
-#else
     for (uint iPass = 0; iPass < cRetries; iPass++)
     {
         Serial.printf("Pass %u of %u: Connecting to Wifi SSID: %s - ESP32 Free Memory: %u, PSRAM:%u, PSRAM Free: %u\n",
@@ -61,7 +52,6 @@ bool ConnectToWiFi(uint cRetries)
         if (WiFi.isConnected())
             break;
     }
-#endif
 
     if (false == WiFi.isConnected())
     {
@@ -69,25 +59,9 @@ bool ConnectToWiFi(uint cRetries)
         return false;
     }
 
-    #if INCOMING_WIFI_ENABLED
-    // Start listening for incoming data
-    debugI("Starting/restarting Socket Server...");
-    g_SocketServer.release();
-    if (false == g_SocketServer.begin())
-        throw runtime_error("Could not start socket server!");
-
-    debugI("Socket server started.");
-    #endif
-
     #if ENABLE_OTA
         Serial.printf("Publishing OTA...");
         SetupOTA(cszHostname);
-    #endif
-
-    #if ENABLE_WEBSERVER
-        Serial.printf("Starting Web Server...");
-        g_WebServer.begin();
-        Serial.printf("Web Server Started!");
     #endif
 
     Serial.printf("Received IP: %s", WiFi.localIP().toString().c_str());
@@ -101,7 +75,10 @@ bool ConnectToWiFi(uint cRetries)
 
 void SetupOTA(const char *pszHostname)
 {
-#if ENABLE_OTA
+    #if !ENABLE_OTA
+        return;
+    #endif
+
     ArduinoOTA.setRebootOnSuccess(true);
 
     if (nullptr == pszHostname)
@@ -175,7 +152,6 @@ void SetupOTA(const char *pszHostname)
         });
 
     ArduinoOTA.begin();
-#endif
 }
 
 

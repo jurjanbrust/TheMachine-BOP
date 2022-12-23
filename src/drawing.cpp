@@ -7,6 +7,19 @@
 extern uint32_t           g_FPS;
 extern bool               g_bUpdateStarted;
 
+void PostDrawHandler()
+{
+    // Once an OTA flash update has started, we don't want to hog the CPU or it goes quite slowly, 
+    // so we'll pause to share the CPU a bit once the update has begun
+    if (g_bUpdateStarted)
+        delay(1000);
+    
+    // If we didn't draw anything, we near-busy-wait so that we are continually checking the clock for an packet
+    // whose time has come
+    delay(5);
+}
+
+// used for pinbot jackpot
 void DrawWalkingDot()
 {
     // move up
@@ -36,6 +49,15 @@ void DrawWalkingDot()
     }
 }
 
+void TheMachineLogo(CRGB color = CRGB(246,200,160))
+{
+        int start = 8;
+        for (int i = start; i < start+12; i++) {
+			leds1[i] = color;
+        }
+        FastLED.show();
+}
+
 void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int everyNth = 10)
 {
 		for (int i = 0; i < nrOfLeds; i+= everyNth) {
@@ -45,7 +67,7 @@ void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int ever
         FastLED.show();
 }
 
-void Heartbeat()
+void Heartbeat(int channel)
 {
   const uint8_t hbTable[] = {
     25,
@@ -117,12 +139,23 @@ void Heartbeat()
 #define NUM_STEPS (sizeof(hbTable)/sizeof(uint8_t)) //array size
   //fill_solid(leds0, NUM_LEDS0, CRGB::Red);
   // beat8 generates index 0-255 (fract8) as per getBPM(). lerp8by8 interpolates that to array index:
-  uint8_t hbIndex = lerp8by8( 0, NUM_STEPS, beat8( 60 / 2 )) ;
+  uint8_t hbIndex = lerp8by8( 0, NUM_STEPS, beat8( 35 )) ;
   uint8_t brightness = lerp8by8( 0, 255, hbTable[hbIndex] ) ;
-  leds0[NUM_LEDS0 -1] = CRGB::Red;
-  leds0[NUM_LEDS0 -1].fadeLightBy(brightness);
-  //FastLED.setBrightness( lerp8by8( 0, 255, brightness ) ); // interpolate to max MAX_BRIGHTNESS
+  if(channel == 0) {
+    leds0[NUM_LEDS0 -1] = CRGB::Red;
+    leds0[NUM_LEDS0 -1].fadeLightBy(brightness);
+  } else if (channel == 1) {
+    leds0[NUM_LEDS0 -2] = CRGB::BlueViolet;
+    leds0[NUM_LEDS0 -2].fadeLightBy(brightness);
+    leds0[NUM_LEDS0 -3] = CRGB::BlueViolet;
+    leds0[NUM_LEDS0 -3].fadeLightBy(brightness);
+    leds0[NUM_LEDS0 -4] = CRGB::BlueViolet;
+    leds0[NUM_LEDS0 -4].fadeLightBy(brightness);
+    leds0[NUM_LEDS0 -5] = CRGB::BlueViolet;
+    leds0[NUM_LEDS0 -5].fadeLightBy(brightness);
+  }
   FastLED.show();
+  //FastLED.setBrightness( lerp8by8( 0, 255, brightness ) ); // interpolate to max MAX_BRIGHTNESS
 }
 
 void Eyes()
@@ -134,99 +167,44 @@ void Eyes()
     FastLED.show();
 }
 
-// DrawLoopTaskEntry One
-// 
 // Starting point for the draw code loop
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
-   
-    debugI(">> DrawLoopTaskEntry One\n");
-
+    int start = 55;
+    int end = start + 2;
+    int delayTime = 70;
     for (;;)
     {
-        // Loop through each of the channels and see if they have a current frame that needs to be drawn
-        if (WiFi.isConnected())
-        {
-            debugI("ColorFillEffect");
-            ColorFillEffect(CRGB::White, NUM_LEDS1, 1);
-            delay(1000*60);
+        for(int i = start; i<=end; i++) {
+            leds1[i] = CRGB::Red;
         }
-        else
-        {
-            debugV("Not connected to WiFi so not checking for WiFi draw.");
-        }
+        FastLED.show(); delay(delayTime);
 
-        // Once an OTA flash update has started, we don't want to hog the CPU or it goes quite slowly, 
-        // so we'll pause to share the CPU a bit once the update has begun
-        if (g_bUpdateStarted)
-            delay(100);
-        
-        // If we didn't draw anything, we near-busy-wait so that we are continually checking the clock for an packet
-        // whose time has come
-        delay(5);
+         for(int i = start; i<=end; i++) {
+            leds1[i] = CRGB::Brown;
+        }
+        FastLED.show(); delay(delayTime);
+
+        PostDrawHandler();
     }
 }
 
-// DrawLoopTaskEntry
-// 
-// Starting point for the draw code loop
+// hart
 void IRAM_ATTR DrawLoopTaskEntryTwo(void *) 
 {
-   
-    debugI(">> DrawLoopTaskEntry Two\n");
-
     for (;;)
     {
-        // Loop through each of the channels and see if they have a current frame that needs to be drawn
-        if (WiFi.isConnected())
-        {
-            Heartbeat();
-            //delay(1000*1);
-        }
-        else
-        {
-            debugV("Not connected to WiFi so not checking for WiFi draw.");
-        }
-
-        // Once an OTA flash update has started, we don't want to hog the CPU or it goes quite slowly, 
-        // so we'll pause to share the CPU a bit once the update has begun
-        if (g_bUpdateStarted)
-            delay(100);
-        
-        // If we didn't draw anything, we near-busy-wait so that we are continually checking the clock for an packet
-        // whose time has come
-        delay(5);
+        Heartbeat(0);
+        PostDrawHandler();
     }
 }
 
-// DrawLoopTaskEntry
-// 
-// Starting point for the draw code loop
+// jackpot (been)
 void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 {
-   
-    debugI(">> DrawLoopTaskEntry Three\n");
-
     for (;;)
     {
-        // Loop through each of the channels and see if they have a current frame that needs to be drawn
-        if (WiFi.isConnected())
-        {
-            DrawWalkingDot();
-            delay(1000*1);
-        }
-        else
-        {
-            debugV("Not connected to WiFi so not checking for WiFi draw.");
-        }
-
-        // Once an OTA flash update has started, we don't want to hog the CPU or it goes quite slowly, 
-        // so we'll pause to share the CPU a bit once the update has begun
-        if (g_bUpdateStarted)
-            delay(100);
-        
-        // If we didn't draw anything, we near-busy-wait so that we are continually checking the clock for an packet
-        // whose time has come
-        delay(5);
+        DrawWalkingDot();
+        delay(1000*1);
     }
 }

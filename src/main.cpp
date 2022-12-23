@@ -79,10 +79,11 @@ void setup() {
     FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
     FastLED.setBrightness(80);
     ColorFillEffect(CRGB::White, NUM_LEDS1, 1); // inital set to white
+    TheMachineLogo(CRGB::OrangeRed);
 
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "Draw Loop one", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Draw Loop two", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryThree, "Draw Loop three", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "Eyes", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Heart", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryThree, "Jackpot", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
 }
 
 void loop() {

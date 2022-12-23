@@ -2,14 +2,14 @@
 
 #define ENABLE_OTA 1
 #define ENABLE_WIFI 1
-#define INCOMING_WIFI_ENABLED 0
-#define ENABLE_WEBSERVER 0
+#define INCOMING_WIFI_ENABLED 1
+
 #define STACK_SIZE (ESP_TASK_MAIN_STACK) // Stack size for each new thread
 
 #define NUM_CHANNELS 2
 
 #define LED_PIN0 14 // been
-#define NUM_LEDS0 8*6 + 4 + 1 // been + ogen + hart
+#define NUM_LEDS0 8*6 + 4 + 1 // been + ogen + hart (hart is laatste ledje)
 
 #define LED_PIN1 12 // overig
 #define NUM_LEDS1 121 // overig

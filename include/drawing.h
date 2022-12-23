@@ -5,4 +5,6 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *);
 void IRAM_ATTR DrawLoopTaskEntryThree(void *);
 void DrawWalkingDot();
 void ColorFillEffect(CRGB color, int nrOfLeds, int everyNth);
-void Heartbeat();
+void Heartbeat(int channel);
+void PostDrawHandler();
+void TheMachineLogo(CRGB color);
