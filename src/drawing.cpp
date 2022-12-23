@@ -167,7 +167,7 @@ void Eyes()
     FastLED.show();
 }
 
-// Starting point for the draw code loop
+// shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
     int start = 55;
@@ -189,7 +189,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
     }
 }
 
-// hart
+// heart
 void IRAM_ATTR DrawLoopTaskEntryTwo(void *) 
 {
     for (;;)
@@ -206,5 +206,26 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
     {
         DrawWalkingDot();
         delay(1000*1);
+        PostDrawHandler();
+    }
+}
+
+// blinking led
+void IRAM_ATTR DrawLoopTaskEntryFour(void *)
+{
+    ColorFillEffect(CRGB::Black, NUM_LEDS1, 1); // inital set to black
+    FastLED.setBrightness(100);
+    for (;;)
+    {
+        for(int dot = 0; dot < NUM_LEDS1; dot++) { 
+            debugI("Led: %d ", dot);
+            leds1[dot] = CRGB::White;
+            FastLED.show();
+            delay(1000);
+            // clear this led for the next time around the loop
+            leds1[dot] = CRGB::Black;
+        }
+
+      PostDrawHandler();
     }
 }

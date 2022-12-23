@@ -81,9 +81,10 @@ void setup() {
     ColorFillEffect(CRGB::White, NUM_LEDS1, 1); // inital set to white
     TheMachineLogo(CRGB::OrangeRed);
 
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "Eyes", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "shuttle", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Heart", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryThree, "Jackpot", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryFour, "Blinking", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
 }
 
 void loop() {
