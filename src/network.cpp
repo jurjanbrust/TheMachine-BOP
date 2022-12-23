@@ -1,6 +1,9 @@
 #include "globals.h"
 #include "network.h"
 #include <ArduinoOTA.h>             // Over-the-air helper object so we can be flashed via WiFi
+#include "apiwebserver.h"
+
+extern DRAM_ATTR ApiWebServer g_WebServer;
 
 // processRemoteDebugCmd
 // 
@@ -65,6 +68,12 @@ bool ConnectToWiFi(uint cRetries)
     #endif
 
     Serial.printf("Received IP: %s", WiFi.localIP().toString().c_str());
+
+    #if ENABLE_WEBSERVER
+        debugI("Starting Web Server...");
+        g_WebServer.begin();
+        debugI("Web Server begin called!");
+    #endif
 
     return true;
 }

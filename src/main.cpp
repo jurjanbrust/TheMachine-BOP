@@ -3,6 +3,7 @@
 #include <ArduinoOTA.h>                         // For updating the flash over WiFi
 #include "network.h"                            // For WiFi credentials
 #include "drawing.h"
+#include "apiwebserver.h"
 
 //
 // Task Handles to our running threads
@@ -22,6 +23,11 @@ TaskHandle_t g_taskSocket = nullptr;
 //
 DRAM_ATTR bool g_bUpdateStarted = false;            // Has an OTA update started?
 DRAM_ATTR RemoteDebug Debug;                        // Instance of our telnet debug server
+
+#if ENABLE_WEBSERVER
+    DRAM_ATTR ApiWebServer g_WebServer;
+#endif
+
 CRGB leds0[NUM_LEDS0];  // been
 CRGB leds1[NUM_LEDS1];  // overig
 
@@ -69,6 +75,9 @@ void setup() {
     // Re-route debug output to the serial port
     Debug.setSerialEnabled(true);
 
+
+
+
     debugI("Starting DebugLoopTaskEntry");
     xTaskCreatePinnedToCore(DebugLoopTaskEntry, "Debug Loop", STACK_SIZE, nullptr, DEBUG_PRIORITY, &g_taskDebug, DEBUG_CORE);
 
@@ -77,14 +86,34 @@ void setup() {
 
     debugI("Adding %d LEDs to FastLED.", NUM_LEDS0);
     FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
-    FastLED.setBrightness(80);
-    ColorFillEffect(CRGB::White, NUM_LEDS1, 1); // inital set to white
-    TheMachineLogo(CRGB::OrangeRed);
+    FastLED.setBrightness(100);
+
+    //ColorFillEffect(CRGB::White, NUM_LEDS1, 1); // inital set to white
+    
+    TheMachineLogo(CRGB::White);
+    TheBride(CRGB::White);
+    Eyes(CRGB::BlueViolet);
+
+    SingleLed(fingersLeftCorner, CRGB::White);
+    SingleLed(moonTopLeft, CRGB::White);
+    SingleLed(moonTopLeft+1, CRGB::White);
+    SingleLed(moonTopLeft+2, CRGB::White);
+    SingleLed(bigBluePlanetLeftSide, CRGB::White);
+    SingleLed(bigBluePlanetRightSide, CRGB::White);
+    SingleLed(jupiterUpper, CRGB::White);
+    SingleLed(jupiterLower, CRGB::White);
+    SingleLed(spotlights, CRGB::White);
+    SingleLed(fronthead, CRGB::Red);
+    SingleLed(people, CRGB::White);
+    SingleLed(carright1, CRGB::White);
+    SingleLed(carright2, CRGB::White);
+    SingleLed(carleft1, CRGB::White);
+    SingleLed(carleft2, CRGB::White);
 
     xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "shuttle", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Heart", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryThree, "Jackpot", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryFour, "Blinking", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    //xTaskCreatePinnedToCore(DrawLoopTaskEntryFour, "Blinking", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
 }
 
 void loop() {

@@ -2,7 +2,7 @@
 
 #define ENABLE_OTA 1
 #define ENABLE_WIFI 1
-#define INCOMING_WIFI_ENABLED 1
+#define ENABLE_WEBSERVER 1
 
 #define STACK_SIZE (ESP_TASK_MAIN_STACK) // Stack size for each new thread
 

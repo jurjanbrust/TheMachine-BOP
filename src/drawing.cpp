@@ -58,6 +58,22 @@ void TheMachineLogo(CRGB color = CRGB(246,200,160))
         FastLED.show();
 }
 
+void TheBride(CRGB color = CRGB(246,200,160))
+{
+        uint leds[] = {3,5,6,62,63,64,65,66,67,68,69,79,88,94,95,96,97,98,103,104,105,106,107,108,109,110,111,112,113,115,116,117,118};
+
+        for (uint i = 0; i < 33 ; i++) {
+			leds1[leds[i]] = color;
+        }
+        FastLED.show();
+}
+
+void SingleLed(int index, CRGB color = CRGB(246,200,160))
+{
+    leds1[index] = color;
+    FastLED.show();
+}
+
 void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int everyNth = 10)
 {
 		for (int i = 0; i < nrOfLeds; i+= everyNth) {
@@ -158,12 +174,13 @@ void Heartbeat(int channel)
   //FastLED.setBrightness( lerp8by8( 0, 255, brightness ) ); // interpolate to max MAX_BRIGHTNESS
 }
 
-void Eyes()
+void Eyes(CRGB color = CRGB(246,200,160))
 {
-    leds0[NUM_LEDS0 -2] = CRGB::Yellow;   // oog links
-    leds0[NUM_LEDS0 -3] = CRGB::Yellow;   // oog 2e links
-    leds0[NUM_LEDS0 -4] = CRGB::Yellow;   // oog 2e rechts
-    leds0[NUM_LEDS0 -5] = CRGB::Yellow;   // oog rechts
+    leds0[NUM_LEDS0 -2] = color;   // oog links
+    leds0[NUM_LEDS0 -3] = color;   // oog 2e links
+    leds0[NUM_LEDS0 -4] = color;   // oog 2e rechts
+    leds0[NUM_LEDS0 -5] = color;   // oog rechts
+
     FastLED.show();
 }
 
@@ -229,3 +246,4 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
       PostDrawHandler();
     }
 }
+
