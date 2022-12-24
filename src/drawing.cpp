@@ -58,7 +58,7 @@ void JackPotDefaultColors()
     // laatste 4 = rood
     for(int vakje = 0; vakje < 4; vakje++) {
         for(int ledje = 0; ledje < 6; ledje++) {
-            leds0[vakje*6+ledje] = CRGB::Yellow;
+            leds0[vakje*6+ledje] = CRGB::DarkOrange;
         }
     }
 
@@ -252,23 +252,21 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
     }
 }
 
-// blinking led
+// the machine logo
 void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 {
-    ColorFillEffect(CRGB::Black, NUM_LEDS1, 1); // inital set to black
-    FastLED.setBrightness(100);
+    uint8_t deltahue = 10;
     for (;;)
     {
-        for(int dot = 0; dot < NUM_LEDS1; dot++) { 
-            debugI("Led: %d ", dot);
-            leds1[dot] = CRGB::White;
-            FastLED.show();
-            delay(1000);
-            // clear this led for the next time around the loop
-            leds1[dot] = CRGB::Black;
+        uint8_t thisHue = beat8(10,255);                     // A simple rainbow march.
+        CHSV hsv;
+        hsv.hue = thisHue;
+        hsv.val = 255;
+        hsv.sat = 240;
+        for( int i = 8; i < 20; ++i) {
+            leds1[i] = hsv;
+            hsv.hue += deltahue;
         }
-
-      PostDrawHandler();
+            PostDrawHandler();
     }
 }
-

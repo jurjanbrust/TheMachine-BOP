@@ -26,5 +26,6 @@ void JackPotDefaultColors();
 #define bigBluePlanetRightSide 74
 #define jupiterUpper 83
 #define jupiterLower 84
-#define spotlights 85
+#define spotlights1 85
+#define spotlights2 29
 #define fingersLeftCorner 50

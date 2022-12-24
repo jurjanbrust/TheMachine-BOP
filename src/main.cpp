@@ -102,18 +102,20 @@ void setup() {
     SingleLed(bigBluePlanetRightSide, CRGB::White);
     SingleLed(jupiterUpper, CRGB::White);
     SingleLed(jupiterLower, CRGB::White);
-    SingleLed(spotlights, CRGB::White);
+    SingleLed(spotlights1, CRGB::White);
+    SingleLed(spotlights2, CRGB::White);
     SingleLed(fronthead, CRGB::Red);
     SingleLed(people, CRGB::White);
     SingleLed(carright1, CRGB::White);
     SingleLed(carright2, CRGB::White);
     SingleLed(carleft1, CRGB::White);
     SingleLed(carleft2, CRGB::White);
+    SingleLed(apple, CRGB::White);
 
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "shuttle", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "Shuttle", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Heart", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryThree, "Jackpot", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
-    //xTaskCreatePinnedToCore(DrawLoopTaskEntryFour, "Blinking", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    xTaskCreatePinnedToCore(DrawLoopTaskEntryFour, "TheMachine", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
 }
 
 void loop() {
