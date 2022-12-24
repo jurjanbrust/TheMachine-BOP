@@ -22,13 +22,14 @@ class ApiWebServer
 
     void begin()
     {
-        _server.on("/set",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->processRequest(pRequest); });
-        _server.begin();
+        _server.on("/setled",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->setLed(pRequest); });
+        _server.on("/setbrightness",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->setBrightness(pRequest); });
 
+        _server.begin();
         debugI("HTTP server started");
     }
 
-    void processRequest(AsyncWebServerRequest * pRequest)
+    void setLed(AsyncWebServerRequest * pRequest)
     {
         ColorFillEffect(CRGB::Black, NUM_LEDS1, 1);
 
@@ -50,4 +51,26 @@ class ApiWebServer
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);      
     }
+
+    void setBrightness(AsyncWebServerRequest * pRequest)
+    {
+        const char * pszEffectIndex = "value";
+        if (pRequest->hasParam(pszEffectIndex, false, false))
+        {
+          debugI("processRequest: param found");
+          AsyncWebParameter * p = pRequest->getParam(pszEffectIndex, false, false);
+          size_t value = strtoul(p->value().c_str(), NULL, 10); 
+          debugI("value = %d", value);
+          FastLED.setBrightness(value);
+          FastLED.show();
+        } 
+        else 
+        {
+            debugI("processRequest: param not found");
+        }
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);      
+    }
+
 };
