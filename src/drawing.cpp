@@ -24,29 +24,50 @@ void DrawWalkingDot()
 {
     // move up
     for(int current = 0; current < NUM_LEDS0-6; current+=6) {
-        for(int i =0; i<6; i++) 
+        for(int i=0; i<6; i++) 
             leds0[current+i] = CRGB::Red;
 
         FastLED.show();
         delay(300);
 
-        for(int i =0; i<6; i++) 
+        for(int i=0; i<6; i++) 
             leds0[current+i] = CRGB::Black;
+
         FastLED.show();
     }
 
     // Move down
     for(int current = NUM_LEDS0-6; current > 0; current-=6) {
-        for(int i =0; i<6; i++) 
+        for(int i=0; i<6; i++) 
             leds0[current-i] = CRGB::Red;
 
         FastLED.show();
         delay(300);
 
-        for(int i =0; i<6; i++) 
+        for(int i=0; i<6; i++) 
             leds0[current-i] = CRGB::Black;
+
         FastLED.show();
     }
+}
+
+void JackPotDefaultColors()
+{
+    // jackpot = 8 vakjes met 6 leds per stuk
+    // eerste 4 = geel
+    // laatste 4 = rood
+    for(int vakje = 0; vakje < 4; vakje++) {
+        for(int ledje = 0; ledje < 6; ledje++) {
+            leds0[vakje*6+ledje] = CRGB::Yellow;
+        }
+    }
+
+    for(int vakje = 4; vakje < 8; vakje++) {
+        for(int ledje = 0; ledje < 6; ledje++) {
+            leds0[vakje*6+ledje] = CRGB::Red;
+        }
+    }
+    FastLED.show();
 }
 
 void TheMachineLogo(CRGB color = CRGB(246,200,160))
@@ -221,8 +242,12 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 {
     for (;;)
     {
-        DrawWalkingDot();
-        delay(1000*1);
+        for(int i=0; i<5; i++) {
+            DrawWalkingDot();
+            delay(1000*1);
+        }
+        JackPotDefaultColors();
+        delay(1000*30);
         PostDrawHandler();
     }
 }

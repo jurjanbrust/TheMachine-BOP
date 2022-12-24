@@ -12,6 +12,7 @@ void TheMachineLogo(CRGB color);
 void TheBride(CRGB color);
 void SingleLed(int index, CRGB color);
 void Eyes(CRGB color);
+void JackPotDefaultColors();
 
 #define moonTopLeft 2
 #define fronthead 4
