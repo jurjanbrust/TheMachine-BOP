@@ -29,3 +29,5 @@ void JackPotDefaultColors();
 #define spotlights1 85
 #define spotlights2 29
 #define fingersLeftCorner 50
+#define theMachineFirstLed 8
+#define theMachineLastLed 17

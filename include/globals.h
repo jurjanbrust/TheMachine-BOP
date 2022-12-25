@@ -14,8 +14,6 @@
 #define LED_PIN1 12 // overig
 #define NUM_LEDS1 121 // overig
 
-//#define NUM_LEDS 505 // = ledstrip plafond
-
 // Thread priorities
 //
 // We have a half-dozen workers and these are their relative priorities.  It might survive if all were set equal,

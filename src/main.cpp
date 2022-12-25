@@ -75,9 +75,6 @@ void setup() {
     // Re-route debug output to the serial port
     Debug.setSerialEnabled(true);
 
-
-
-
     debugI("Starting DebugLoopTaskEntry");
     xTaskCreatePinnedToCore(DebugLoopTaskEntry, "Debug Loop", STACK_SIZE, nullptr, DEBUG_PRIORITY, &g_taskDebug, DEBUG_CORE);
 
@@ -88,8 +85,6 @@ void setup() {
     FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
     FastLED.setBrightness(100);
 
-    //ColorFillEffect(CRGB::White, NUM_LEDS1, 1); // inital set to white
-    
     TheMachineLogo(CRGB::White);
     TheBride(CRGB::White);
     Eyes(CRGB::BlueViolet);

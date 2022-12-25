@@ -81,7 +81,6 @@ bool ConnectToWiFi(uint cRetries)
 // SetupOTA
 //
 // Set up the over-the-air programming info so that we can be flashed over WiFi
-
 void SetupOTA(const char *pszHostname)
 {
     #if !ENABLE_OTA
@@ -105,17 +104,6 @@ void SetupOTA(const char *pszHostname)
             else // U_SPIFFS
                 type = "filesystem";
 
-            // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-            Serial.printf("Stopping SPIFFS");
-            #if ENABLE_WEBSEVER
-            SPIFFS.end();
-            #endif
-            
-            Serial.printf("Stopping IR remote");
-            #if ENABLE_REMOTE            
-            g_RemoteControl.end();
-            #endif        
-            
             Serial.printf("Start updating from OTA ");
             Serial.printf("%s", type.c_str());
         })

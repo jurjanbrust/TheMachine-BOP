@@ -1,4 +1,5 @@
 #include "globals.h"
+#include "drawing.h"
 #include <ArduinoOTA.h>             // Over-the-air helper object so we can be flashed via WiFi
 
 // The g_buffer_mutex is a global mutex used to protect access while adding or removing frames
@@ -247,7 +248,7 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
             delay(1000*1);
         }
         JackPotDefaultColors();
-        delay(1000*30);
+        delay(1000*10);
         PostDrawHandler();
     }
 }
@@ -256,17 +257,45 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 {
     uint8_t deltahue = 10;
+    int randomLed;
+    int deplayTime = 70;
+
     for (;;)
     {
-        uint8_t thisHue = beat8(10,255);                     // A simple rainbow march.
+        // A simple rainbow march.
+        uint8_t thisHue = beat8(10,255);
         CHSV hsv;
         hsv.hue = thisHue;
         hsv.val = 255;
         hsv.sat = 240;
-        for( int i = 8; i < 20; ++i) {
+        for( int i = theMachineFirstLed; i < theMachineLastLed; ++i) {
             leds1[i] = hsv;
             hsv.hue += deltahue;
         }
-            PostDrawHandler();
+
+        EVERY_N_SECONDS(60) {
+            TheMachineLogo(CRGB::White);
+
+            // blink random led in the machine
+            for(int j = 0; j < 20; j++) {
+                randomLed = (rand() % (theMachineLastLed - theMachineFirstLed + 1)) + theMachineFirstLed;
+
+                for(int i = 0; i < 5; i++) {
+                    leds1[randomLed] = CRGB::Black;
+                    FastLED.show();
+                    delay(deplayTime);
+                    leds1[randomLed] = CRGB::White;
+                    FastLED.show();
+                    delay(deplayTime);
+                }
+            }
+        }
+
+        EVERY_N_SECONDS(180) {
+            TheMachineLogo(CRGB::White);
+            sleep(120);
+        }
+
+        PostDrawHandler();
     }
 }
