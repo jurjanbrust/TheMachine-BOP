@@ -41,3 +41,8 @@
 extern RemoteDebug Debug;           // Let everyone in the project know about it.  If you don't have it, delete this
 extern CRGB leds0[];    // been
 extern CRGB leds1[];    // overig
+
+constexpr uint8_t kDefaultBrightness = 100;
+
+uint8_t LoadSavedBrightness();
+void SaveBrightness(uint8_t value);

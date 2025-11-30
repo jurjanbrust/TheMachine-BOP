@@ -61,7 +61,9 @@ class ApiWebServer
           AsyncWebParameter * p = pRequest->getParam(pszEffectIndex, false, false);
           size_t value = strtoul(p->value().c_str(), NULL, 10); 
           debugI("value = %d", value);
-          FastLED.setBrightness(value);
+          uint8_t brightness = static_cast<uint8_t>(constrain(value, 0, 255));
+          FastLED.setBrightness(brightness);
+          SaveBrightness(brightness);
           FastLED.show();
         } 
         else 

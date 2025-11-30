@@ -1,6 +1,7 @@
 #include "globals.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>                         // For updating the flash over WiFi
+#include <Preferences.h>
 #include "network.h"                            // For WiFi credentials
 #include "drawing.h"
 #include "apiwebserver.h"
@@ -30,6 +31,34 @@ DRAM_ATTR RemoteDebug Debug;                        // Instance of our telnet de
 
 CRGB leds0[NUM_LEDS0];  // been
 CRGB leds1[NUM_LEDS1];  // overig
+
+constexpr const char * kPrefsNamespace = "pinbot";
+constexpr const char * kBrightnessKey = "brightness";
+
+uint8_t LoadSavedBrightness()
+{
+    Preferences prefs;
+    uint8_t brightness = kDefaultBrightness;
+
+    if (prefs.begin(kPrefsNamespace, true))
+    {
+        brightness = prefs.getUChar(kBrightnessKey, kDefaultBrightness);
+        prefs.end();
+    }
+
+    return brightness;
+}
+
+void SaveBrightness(uint8_t value)
+{
+    Preferences prefs;
+
+    if (prefs.begin(kPrefsNamespace, false))
+    {
+        prefs.putUChar(kBrightnessKey, value);
+        prefs.end();
+    }
+}
 
 // DebugLoopTaskEntry
 //
@@ -83,7 +112,9 @@ void setup() {
 
     debugI("Adding %d LEDs to FastLED.", NUM_LEDS0);
     FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
-    FastLED.setBrightness(100);
+    const uint8_t startupBrightness = LoadSavedBrightness();
+    FastLED.setBrightness(startupBrightness);
+    debugI("Startup brightness set to %u", startupBrightness);
 
     TheMachineLogo(CRGB::White);
     TheBride(CRGB::White);
