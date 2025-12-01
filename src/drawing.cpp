@@ -8,6 +8,150 @@
 extern uint32_t           g_FPS;
 extern bool               g_bUpdateStarted;
 
+namespace
+{
+    constexpr uint16_t kGlobalHeartIntervalSeconds = 600;   // 10 minutes
+    constexpr uint32_t kGlobalHeartDurationMs      = 15000;  // run heartbeat for 15s
+    constexpr uint32_t kMachineModeDurationMs      = 60000;  // rotate every minute
+    constexpr uint8_t  kMachineLedCount            = theMachineLastLed - theMachineFirstLed + 1;
+
+    enum class MachineMode : uint8_t
+    {
+        Rainbow = 0,
+        Pulse,
+        Sparkle,
+        Scanner,
+        Count
+    };
+
+    static const uint8_t kHeartbeatTable[] = {
+        25,  61, 105, 153, 197, 233, 253, 255,
+        252, 243, 230, 213, 194, 149, 101, 105,
+        153, 197, 216, 233, 244, 253, 255, 255,
+        252, 249, 243, 237, 230, 223, 213, 206,
+        194, 184, 174, 162, 149, 138, 126, 112,
+        101,  91,  78,  69,  62,  58,  51,  47,
+         43,  39,  37,  35,  29,  25,  22,  20,
+         19,  15,  12,   9,   8,   6,   5,   3
+    };
+
+    constexpr uint8_t HeartbeatTableSize()
+    {
+        return static_cast<uint8_t>(sizeof(kHeartbeatTable) / sizeof(kHeartbeatTable[0]));
+    }
+
+    uint8_t GetHeartbeatBrightness(uint8_t bpm = 35)
+    {
+        const uint8_t steps = HeartbeatTableSize();
+        const uint8_t hbIndex = lerp8by8(0, steps, beat8(bpm));
+        return lerp8by8(0, 255, kHeartbeatTable[hbIndex]);
+    }
+
+    void FillMachineRange(const CRGB & color)
+    {
+        for (uint8_t i = 0; i < kMachineLedCount; ++i)
+        {
+            leds1[theMachineFirstLed + i] = color;
+        }
+    }
+
+    void RenderMachineRainbow()
+    {
+        const uint8_t baseHue = beat8(12);
+        CHSV hsv(baseHue, 240, 255);
+        for (uint8_t i = 0; i < kMachineLedCount; ++i)
+        {
+            leds1[theMachineFirstLed + i] = hsv;
+            hsv.hue += 10;
+        }
+        FastLED.show();
+    }
+
+    void RenderMachinePulse()
+    {
+        CRGB color = CRGB::DeepPink;
+        color.nscale8_video(GetHeartbeatBrightness(30));
+        FillMachineRange(color);
+        FastLED.show();
+    }
+
+    void RenderMachineSparkle()
+    {
+        fadeToBlackBy(&leds1[theMachineFirstLed], kMachineLedCount, 40);
+        const uint8_t idx = random8(kMachineLedCount);
+        leds1[theMachineFirstLed + idx] = CRGB::White;
+        FastLED.show();
+        delay(30);
+    }
+
+    void RenderMachineScanner()
+    {
+        static int8_t direction = 1;
+        static uint8_t position = 0;
+
+        FillMachineRange(CRGB::Black);
+        const uint8_t ledIndex = theMachineFirstLed + position;
+        leds1[ledIndex] = CRGB::Red;
+        FastLED.show();
+
+        if (position == 0)
+            direction = 1;
+        else if (position == kMachineLedCount - 1)
+            direction = -1;
+
+        position = static_cast<uint8_t>(position + direction);
+        delay(40);
+    }
+
+    void RunMachineMode(MachineMode mode)
+    {
+        switch (mode)
+        {
+            case MachineMode::Rainbow:
+                RenderMachineRainbow();
+                break;
+            case MachineMode::Pulse:
+                RenderMachinePulse();
+                break;
+            case MachineMode::Sparkle:
+                RenderMachineSparkle();
+                break;
+            case MachineMode::Scanner:
+                RenderMachineScanner();
+                break;
+            default:
+                break;
+        }
+    }
+
+    MachineMode NextMachineMode(MachineMode mode)
+    {
+        auto next = static_cast<uint8_t>(mode) + 1;
+        const auto maxModes = static_cast<uint8_t>(MachineMode::Count);
+        if (next >= maxModes)
+            next = 0;
+        return static_cast<MachineMode>(next);
+    }
+
+    void RunGlobalHeartMode()
+    {
+        const uint32_t start = millis();
+        while (millis() - start < kGlobalHeartDurationMs)
+        {
+            const uint8_t brightness = GetHeartbeatBrightness();
+            CRGB strip0 = CRGB::Red;
+            strip0.nscale8_video(brightness);
+            CRGB strip1 = CRGB::BlueViolet;
+            strip1.nscale8_video(brightness);
+
+            fill_solid(leds0, NUM_LEDS0, strip0);
+            fill_solid(leds1, NUM_LEDS1, strip1);
+            FastLED.show();
+            delay(30);
+        }
+    }
+}
+
 void PostDrawHandler()
 {
     // Once an OTA flash update has started, we don't want to hog the CPU or it goes quite slowly, 
@@ -107,78 +251,7 @@ void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int ever
 
 void Heartbeat(int channel)
 {
-  const uint8_t hbTable[] = {
-    25,
-    61,
-    105,
-    153,
-    197,
-    233,
-    253,
-    255,
-    252,
-    243,
-    230,
-    213,
-    194,
-    149,
-    101,
-    105,
-    153,
-    197,
-    216,
-    233,
-    244,
-    253,
-    255,
-    255,
-    252,
-    249,
-    243,
-    237,
-    230,
-    223,
-    213,
-    206,
-    194,
-    184,
-    174,
-    162,
-    149,
-    138,
-    126,
-    112,
-    101,
-    91,
-    78,
-    69,
-    62,
-    58,
-    51,
-    47,
-    43,
-    39,
-    37,
-    35,
-    29,
-    25,
-    22,
-    20,
-    19,
-    15,
-    12,
-    9,
-    8,
-    6,
-    5,
-    3
-  };
-
-#define NUM_STEPS (sizeof(hbTable)/sizeof(uint8_t)) //array size
-  //fill_solid(leds0, NUM_LEDS0, CRGB::Red);
-  // beat8 generates index 0-255 (fract8) as per getBPM(). lerp8by8 interpolates that to array index:
-  uint8_t hbIndex = lerp8by8( 0, NUM_STEPS, beat8( 35 )) ;
-  uint8_t brightness = lerp8by8( 0, 255, hbTable[hbIndex] ) ;
+    const uint8_t brightness = GetHeartbeatBrightness();
   if(channel == 0) {
     leds0[NUM_LEDS0 -1] = CRGB::Red;
     leds0[NUM_LEDS0 -1].fadeLightBy(brightness);
@@ -234,6 +307,10 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
     for (;;)
     {
         Heartbeat(0);
+        EVERY_N_SECONDS(kGlobalHeartIntervalSeconds)
+        {
+            RunGlobalHeartMode();
+        }
         PostDrawHandler();
     }
 }
@@ -256,46 +333,20 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 // the machine logo
 void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 {
-    uint8_t deltahue = 10;
-    int randomLed;
-    int deplayTime = 70;
+    MachineMode currentMode = MachineMode::Rainbow;
+    uint32_t lastModeChange = millis();
 
     for (;;)
     {
-        // A simple rainbow march.
-        uint8_t thisHue = beat8(10,255);
-        CHSV hsv;
-        hsv.hue = thisHue;
-        hsv.val = 255;
-        hsv.sat = 240;
-        for( int i = theMachineFirstLed; i < theMachineLastLed; ++i) {
-            leds1[i] = hsv;
-            hsv.hue += deltahue;
+        const uint32_t now = millis();
+        if (now - lastModeChange >= kMachineModeDurationMs)
+        {
+            currentMode = NextMachineMode(currentMode);
+            lastModeChange = now;
+            debugI("Switching The Machine mode to %u", static_cast<unsigned>(currentMode));
         }
 
-        EVERY_N_SECONDS(60) {
-            TheMachineLogo(CRGB::White);
-
-            // blink random led in the machine
-            for(int j = 0; j < 20; j++) {
-                randomLed = (rand() % (theMachineLastLed - theMachineFirstLed + 1)) + theMachineFirstLed;
-
-                for(int i = 0; i < 5; i++) {
-                    leds1[randomLed] = CRGB::Black;
-                    FastLED.show();
-                    delay(deplayTime);
-                    leds1[randomLed] = CRGB::White;
-                    FastLED.show();
-                    delay(deplayTime);
-                }
-            }
-        }
-
-        EVERY_N_SECONDS(180) {
-            TheMachineLogo(CRGB::White);
-            sleep(120);
-        }
-
+        RunMachineMode(currentMode);
         PostDrawHandler();
     }
 }
