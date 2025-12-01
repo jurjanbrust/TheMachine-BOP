@@ -19,7 +19,53 @@ namespace
     constexpr uint8_t  kJackpotLedCount            = kJackpotSegments * kJackpotLedsPerSegment;
     constexpr uint8_t  kPlanetCount                = 5;
     constexpr uint16_t kPlanetSparkleIntervalMs    = 150;
-    constexpr uint8_t  kPlanetFadeAmount           = 220;
+    constexpr uint8_t  kPlanetSparkleDecay         = 220;
+    constexpr uint32_t kShowcaseDimDurationMs      = 2500;
+    constexpr uint32_t kShowcaseRampDurationMs     = 2000;
+    constexpr uint32_t kShowcaseHoldDurationMs     = 1000;
+
+    constexpr uint8_t kPlanetIndices[kPlanetCount] = {
+        moonTopLeft,
+        bigBluePlanetLeftSide,
+        bigBluePlanetRightSide,
+        jupiterUpper,
+        jupiterLower
+    };
+
+    const CRGB kPlanetBaseColors[kPlanetCount] = {
+        CRGB::AntiqueWhite,
+        CRGB::DeepSkyBlue,
+        CRGB::DeepSkyBlue,
+        CRGB::OrangeRed,
+        CRGB::OrangeRed
+    };
+
+    CRGB g_planetSparkleLayer[kPlanetCount] = {};
+    bool g_planetHighlightActive = false;
+    uint32_t g_frontheadPulseStart = 0;
+
+    void UpdatePlanetSparkles()
+    {
+        for (uint8_t i = 0; i < kPlanetCount; ++i)
+        {
+            g_planetSparkleLayer[i].fadeToBlackBy(kPlanetSparkleDecay);
+            leds1[kPlanetIndices[i]] += g_planetSparkleLayer[i];
+        }
+
+        const uint8_t sparkleIdx = random8(kPlanetCount);
+        g_planetSparkleLayer[sparkleIdx] += CRGB::White;
+    }
+
+    void UpdateFrontheadAccent()
+    {
+        if (!g_planetHighlightActive)
+            return;
+
+        const uint8_t pulse = beatsin8(30, 40, 220);
+        CRGB accent = CRGB::White;
+        accent.nscale8_video(pulse);
+        leds1[fronthead] = accent;
+    }
 
     enum class MachineMode : uint8_t
     {
@@ -27,6 +73,7 @@ namespace
         Pulse,
         Sparkle,
         Scanner,
+        Showcase,
         Count
     };
 
@@ -36,6 +83,9 @@ namespace
         AlternatingFill,
         DualChase,
         Meteor,
+        RainbowSweep,
+        Sparkle,
+        Pulse,
         Count
     };
 
@@ -118,8 +168,119 @@ namespace
         delay(40);
     }
 
+    struct ShowcaseState
+    {
+        bool initialized = false;
+        uint8_t stage = 0;
+        uint32_t stageStart = 0;
+    };
+
+    ShowcaseState g_showcaseState;
+
+    void ResetShowcaseState()
+    {
+        g_showcaseState = ShowcaseState{};
+    }
+
+    uint8_t ShowcaseIntensity(uint32_t elapsed)
+    {
+        if (elapsed >= kShowcaseRampDurationMs)
+            return 255;
+        return static_cast<uint8_t>((elapsed * 255UL) / kShowcaseRampDurationMs);
+    }
+
+    void RenderMachineShowcase()
+    {
+        const uint32_t now = millis();
+        if (!g_showcaseState.initialized)
+        {
+            g_showcaseState.initialized = true;
+            g_showcaseState.stage = 0;
+            g_showcaseState.stageStart = now;
+        }
+
+        auto advanceStage = [&](uint8_t nextStage) {
+            g_showcaseState.stage = nextStage;
+            g_showcaseState.stageStart = millis();
+        };
+
+        switch (g_showcaseState.stage)
+        {
+            case 0:
+            {
+                g_planetHighlightActive = false;
+                fadeToBlackBy(leds0, NUM_LEDS0, 20);
+                fadeToBlackBy(leds1, NUM_LEDS1, 20);
+                FastLED.show();
+                if (now - g_showcaseState.stageStart >= kShowcaseDimDurationMs)
+                {
+                    advanceStage(1);
+                }
+                break;
+            }
+            case 1:
+            {
+                g_planetHighlightActive = false;
+                const uint32_t elapsed = now - g_showcaseState.stageStart;
+                CRGB machineColor = CRGB(246, 200, 160);
+                machineColor.nscale8_video(ShowcaseIntensity(elapsed));
+                FillMachineRange(machineColor);
+                FastLED.show();
+                if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
+                {
+                    advanceStage(2);
+                }
+                break;
+            }
+            case 2:
+            {
+                if (!g_planetHighlightActive)
+                    g_frontheadPulseStart = now;
+                g_planetHighlightActive = true;
+                const uint32_t elapsed = now - g_showcaseState.stageStart;
+                const uint8_t intensity = ShowcaseIntensity(elapsed);
+                for (uint8_t i = 0; i < kPlanetCount; ++i)
+                {
+                    CRGB color = kPlanetBaseColors[i];
+                    color.nscale8_video(intensity);
+                    leds1[kPlanetIndices[i]] = color;
+                }
+                UpdateFrontheadAccent();
+                FastLED.show();
+                if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
+                {
+                    advanceStage(3);
+                }
+                break;
+            }
+            case 3:
+            {
+                g_planetHighlightActive = false;
+                const uint32_t elapsed = now - g_showcaseState.stageStart;
+                CRGB foreheadColor = CRGB::White;
+                foreheadColor.nscale8_video(ShowcaseIntensity(elapsed));
+                leds1[fronthead] = foreheadColor;
+                FastLED.show();
+                if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
+                {
+                    advanceStage(0);
+                }
+                break;
+            }
+            default:
+                g_planetHighlightActive = false;
+                advanceStage(0);
+                break;
+        }
+    }
+
     void RunMachineMode(MachineMode mode)
     {
+        if (mode != MachineMode::Showcase)
+        {
+            ResetShowcaseState();
+        }
+
         switch (mode)
         {
             case MachineMode::Rainbow:
@@ -133,6 +294,9 @@ namespace
                 break;
             case MachineMode::Scanner:
                 RenderMachineScanner();
+                break;
+            case MachineMode::Showcase:
+                RenderMachineShowcase();
                 break;
             default:
                 break;
@@ -204,35 +368,6 @@ namespace
             {
                 leds0[current + i] = CRGB::Black;
             }
-        }
-
-        constexpr uint8_t kPlanetIndices[kPlanetCount] = {
-            moonTopLeft,
-            bigBluePlanetLeftSide,
-            bigBluePlanetRightSide,
-            jupiterUpper,
-            jupiterLower
-        };
-
-        static const CRGB kPlanetBaseColors[kPlanetCount] = {
-            CRGB::AntiqueWhite,
-            CRGB::DeepSkyBlue,
-            CRGB::DeepSkyBlue,
-            CRGB::OrangeRed,
-            CRGB::OrangeRed
-        };
-
-        void UpdatePlanetSparkles()
-        {
-            for (uint8_t i = 0; i < kPlanetCount; ++i)
-            {
-                const uint8_t idx = kPlanetIndices[i];
-                leds1[idx].nscale8_video(kPlanetFadeAmount);
-                leds1[idx] += kPlanetBaseColors[i];
-            }
-
-            const uint8_t sparkleIdx = random8(kPlanetCount);
-            leds1[kPlanetIndices[sparkleIdx]] += CRGB::White;
         }
     }
 
@@ -307,6 +442,39 @@ namespace
         }
     }
 
+    void RunJackpotRainbowSweep()
+    {
+        static uint8_t hueBase = 0;
+        for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+        {
+            leds0[i] = CHSV(hueBase + i * 4, 240, 255);
+        }
+        FastLED.show();
+        hueBase += 3;
+        delay(80);
+    }
+
+    void RunJackpotSparkle()
+    {
+        fadeToBlackBy(leds0, kJackpotLedCount, 40);
+        constexpr uint8_t sparkleCount = 5;
+        for (uint8_t i = 0; i < sparkleCount; ++i)
+        {
+            leds0[random8(kJackpotLedCount)] += CHSV(random8(), 200, 255);
+        }
+        FastLED.show();
+        delay(60);
+    }
+
+    void RunJackpotPulse()
+    {
+        CRGB color = CRGB::Gold;
+        color.nscale8_video(GetHeartbeatBrightness(28));
+        fill_solid(leds0, kJackpotLedCount, color);
+        FastLED.show();
+        delay(50);
+    }
+
     void RunJackpotMode(JackpotMode mode)
     {
         switch (mode)
@@ -322,6 +490,15 @@ namespace
                 break;
             case JackpotMode::Meteor:
                 RunJackpotMeteor();
+                break;
+            case JackpotMode::RainbowSweep:
+                RunJackpotRainbowSweep();
+                break;
+            case JackpotMode::Sparkle:
+                RunJackpotSparkle();
+                break;
+            case JackpotMode::Pulse:
+                RunJackpotPulse();
                 break;
             default:
                 break;
