@@ -14,6 +14,12 @@ namespace
     constexpr uint32_t kGlobalHeartDurationMs      = 15000;  // run heartbeat for 15s
     constexpr uint32_t kMachineModeDurationMs      = 60000;  // rotate every minute
     constexpr uint8_t  kMachineLedCount            = theMachineLastLed - theMachineFirstLed + 1;
+    constexpr uint8_t  kJackpotSegments            = 8;
+    constexpr uint8_t  kJackpotLedsPerSegment      = 6;
+    constexpr uint8_t  kJackpotLedCount            = kJackpotSegments * kJackpotLedsPerSegment;
+    constexpr uint8_t  kPlanetCount                = 5;
+    constexpr uint16_t kPlanetSparkleIntervalMs    = 150;
+    constexpr uint8_t  kPlanetFadeAmount           = 220;
 
     enum class MachineMode : uint8_t
     {
@@ -21,6 +27,15 @@ namespace
         Pulse,
         Sparkle,
         Scanner,
+        Count
+    };
+
+    enum class JackpotMode : uint8_t
+    {
+        Classic = 0,
+        AlternatingFill,
+        DualChase,
+        Meteor,
         Count
     };
 
@@ -150,6 +165,177 @@ namespace
             delay(30);
         }
     }
+
+    void ClearJackpotRange()
+    {
+        for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+        {
+            leds0[i] = CRGB::Black;
+        }
+    }
+
+    void RunJackpotClassic()
+    {
+        for (uint8_t current = 0; current < kJackpotLedCount; current += kJackpotLedsPerSegment)
+        {
+            for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
+            {
+                leds0[current + i] = CRGB::Red;
+            }
+            FastLED.show();
+            delay(300);
+
+            for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
+            {
+                leds0[current + i] = CRGB::Black;
+            }
+        }
+
+        for (int current = kJackpotLedCount - kJackpotLedsPerSegment; current >= 0; current -= kJackpotLedsPerSegment)
+        {
+            for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
+            {
+                leds0[current + i] = CRGB::Red;
+            }
+            FastLED.show();
+            delay(300);
+
+            for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
+            {
+                leds0[current + i] = CRGB::Black;
+            }
+        }
+
+        constexpr uint8_t kPlanetIndices[kPlanetCount] = {
+            moonTopLeft,
+            bigBluePlanetLeftSide,
+            bigBluePlanetRightSide,
+            jupiterUpper,
+            jupiterLower
+        };
+
+        static const CRGB kPlanetBaseColors[kPlanetCount] = {
+            CRGB::AntiqueWhite,
+            CRGB::DeepSkyBlue,
+            CRGB::DeepSkyBlue,
+            CRGB::OrangeRed,
+            CRGB::OrangeRed
+        };
+
+        void UpdatePlanetSparkles()
+        {
+            for (uint8_t i = 0; i < kPlanetCount; ++i)
+            {
+                const uint8_t idx = kPlanetIndices[i];
+                leds1[idx].nscale8_video(kPlanetFadeAmount);
+                leds1[idx] += kPlanetBaseColors[i];
+            }
+
+            const uint8_t sparkleIdx = random8(kPlanetCount);
+            leds1[kPlanetIndices[sparkleIdx]] += CRGB::White;
+        }
+    }
+
+    void RunJackpotAlternatingFill()
+    {
+        static const CRGB palette[] = { CRGB::DarkOrange, CRGB::Gold, CRGB::Red };
+        constexpr size_t paletteSize = sizeof(palette) / sizeof(palette[0]);
+
+        ClearJackpotRange();
+
+        for (size_t colorIdx = 0; colorIdx < paletteSize; ++colorIdx)
+        {
+            for (uint8_t segment = 0; segment < kJackpotSegments; ++segment)
+            {
+                for (uint8_t led = 0; led < kJackpotLedsPerSegment; ++led)
+                {
+                    leds0[segment * kJackpotLedsPerSegment + led] = palette[colorIdx];
+                }
+                FastLED.show();
+                delay(120);
+            }
+        }
+
+        ClearJackpotRange();
+    }
+
+    void RunJackpotDualChase()
+    {
+        ClearJackpotRange();
+        int left = 0;
+        int right = kJackpotLedCount - 1;
+
+        while (left <= right)
+        {
+            leds0[left] = CRGB::Cyan;
+            leds0[right] = CRGB::Magenta;
+            FastLED.show();
+            delay(90);
+            leds0[left] = CRGB::Black;
+            leds0[right] = CRGB::Black;
+            ++left;
+            --right;
+        }
+    }
+
+    void RunJackpotMeteor()
+    {
+        ClearJackpotRange();
+        const CRGB meteorColor = CRGB::DeepSkyBlue;
+        constexpr uint8_t meteorSize = 5;
+        constexpr uint8_t trailDecay = 70;
+        const int totalSteps = kJackpotLedCount + kJackpotLedsPerSegment;
+
+        for (int step = 0; step < totalSteps; ++step)
+        {
+            for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+            {
+                leds0[i].fadeToBlackBy(trailDecay);
+            }
+
+            for (uint8_t i = 0; i < meteorSize; ++i)
+            {
+                int idx = step - i;
+                if (idx >= 0 && idx < kJackpotLedCount)
+                {
+                    leds0[idx] = meteorColor;
+                }
+            }
+
+            FastLED.show();
+            delay(40);
+        }
+    }
+
+    void RunJackpotMode(JackpotMode mode)
+    {
+        switch (mode)
+        {
+            case JackpotMode::Classic:
+                RunJackpotClassic();
+                break;
+            case JackpotMode::AlternatingFill:
+                RunJackpotAlternatingFill();
+                break;
+            case JackpotMode::DualChase:
+                RunJackpotDualChase();
+                break;
+            case JackpotMode::Meteor:
+                RunJackpotMeteor();
+                break;
+            default:
+                break;
+        }
+    }
+
+    JackpotMode NextJackpotMode(JackpotMode mode)
+    {
+        auto next = static_cast<uint8_t>(mode) + 1;
+        const auto maxModes = static_cast<uint8_t>(JackpotMode::Count);
+        if (next >= maxModes)
+            next = 0;
+        return static_cast<JackpotMode>(next);
+    }
 }
 
 void PostDrawHandler()
@@ -167,33 +353,9 @@ void PostDrawHandler()
 // used for pinbot jackpot
 void DrawWalkingDot()
 {
-    // move up
-    for(int current = 0; current < NUM_LEDS0-6; current+=6) {
-        for(int i=0; i<6; i++) 
-            leds0[current+i] = CRGB::Red;
-
-        FastLED.show();
-        delay(300);
-
-        for(int i=0; i<6; i++) 
-            leds0[current+i] = CRGB::Black;
-
-        FastLED.show();
-    }
-
-    // Move down
-    for(int current = NUM_LEDS0-6; current > 0; current-=6) {
-        for(int i=0; i<6; i++) 
-            leds0[current-i] = CRGB::Red;
-
-        FastLED.show();
-        delay(300);
-
-        for(int i=0; i<6; i++) 
-            leds0[current-i] = CRGB::Black;
-
-        FastLED.show();
-    }
+    static JackpotMode currentMode = JackpotMode::Classic;
+    RunJackpotMode(currentMode);
+    currentMode = NextJackpotMode(currentMode);
 }
 
 void JackPotDefaultColors()
@@ -296,6 +458,12 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
             leds1[i] = CRGB::Brown;
         }
         FastLED.show(); delay(delayTime);
+
+        EVERY_N_MILLIS(kPlanetSparkleIntervalMs)
+        {
+            UpdatePlanetSparkles();
+            FastLED.show();
+        }
 
         PostDrawHandler();
     }
