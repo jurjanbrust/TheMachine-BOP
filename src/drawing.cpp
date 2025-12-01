@@ -10,7 +10,7 @@ extern bool               g_bUpdateStarted;
 
 namespace
 {
-    constexpr uint16_t kGlobalHeartIntervalSeconds = 600;   // 10 minutes
+    constexpr uint16_t kGlobalHeartIntervalSeconds = 300;   // 5 minutes
     constexpr uint32_t kGlobalHeartDurationMs      = 15000;  // run heartbeat for 15s
     constexpr uint32_t kMachineModeDurationMs      = 60000;  // rotate every minute
     constexpr uint8_t  kMachineLedCount            = theMachineLastLed - theMachineFirstLed + 1;
@@ -20,6 +20,13 @@ namespace
     constexpr uint8_t  kPlanetCount                = 5;
     constexpr uint16_t kPlanetSparkleIntervalMs    = 150;
     constexpr uint8_t  kPlanetSparkleDecay         = 220;
+    constexpr uint8_t  kShuttleFirstLed            = 55;
+    constexpr uint8_t  kShuttleLedCount            = 3;
+    constexpr uint32_t kShuttleModeDurationMs      = 15000;
+    constexpr uint8_t  kStreetLedCount             = 5;
+    constexpr uint32_t kStreetModeDurationMs       = 12000;
+    constexpr uint32_t kStreetRunnerIntervalMs     = 120;
+    constexpr uint8_t  kStreetSparkleDecay         = 210;
     constexpr uint32_t kShowcaseDimDurationMs      = 2500;
     constexpr uint32_t kShowcaseRampDurationMs     = 2000;
     constexpr uint32_t kShowcaseHoldDurationMs     = 1000;
@@ -40,9 +47,18 @@ namespace
         CRGB::OrangeRed
     };
 
+    constexpr uint8_t kStreetIndices[kStreetLedCount] = {
+        people,
+        carright1,
+        carright2,
+        carleft1,
+        carleft2
+    };
+
     CRGB g_planetSparkleLayer[kPlanetCount] = {};
     bool g_planetHighlightActive = false;
     uint32_t g_frontheadPulseStart = 0;
+    CRGB g_streetSparkleLayer[kStreetLedCount] = {};
 
     void UpdatePlanetSparkles()
     {
@@ -67,6 +83,29 @@ namespace
         leds1[fronthead] = accent;
     }
 
+    void RenderStreetPulse()
+    {
+        const uint8_t wave = beatsin8(24, 60, 255);
+        for (uint8_t i = 0; i < kStreetLedCount; ++i)
+        {
+            CRGB color = CRGB::White;
+            color.nscale8_video(wave);
+            leds1[kStreetIndices[i]] = color;
+        }
+    }
+
+    void RenderStreetSparkle()
+    {
+        for (uint8_t i = 0; i < kStreetLedCount; ++i)
+        {
+            g_streetSparkleLayer[i].fadeToBlackBy(kStreetSparkleDecay);
+            leds1[kStreetIndices[i]] += g_streetSparkleLayer[i];
+        }
+
+        const uint8_t sparkleIdx = random8(kStreetLedCount);
+        g_streetSparkleLayer[sparkleIdx] += CHSV(random8(), 200, 255);
+    }
+
     enum class MachineMode : uint8_t
     {
         Rainbow = 0,
@@ -86,6 +125,22 @@ namespace
         RainbowSweep,
         Sparkle,
         Pulse,
+        Count
+    };
+
+    enum class ShuttleMode : uint8_t
+    {
+        Flicker = 0,
+        Wave,
+        Boost,
+        Count
+    };
+
+    enum class StreetMode : uint8_t
+    {
+        Pulse = 0,
+        Runner,
+        Sparkle,
         Count
     };
 
@@ -513,6 +568,103 @@ namespace
             next = 0;
         return static_cast<JackpotMode>(next);
     }
+
+    CRGB * GetShuttleSegment()
+    {
+        return &leds1[kShuttleFirstLed];
+    }
+
+    void RenderShuttleFlicker()
+    {
+        CRGB * segment = GetShuttleSegment();
+        for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+        {
+            const uint8_t heat = random8(160, 255);
+            segment[i] = CHSV(10 + random8(8), 255, heat);
+        }
+        FastLED.show();
+        delay(35);
+    }
+
+    void RenderShuttleWave()
+    {
+        static uint8_t offset = 0;
+        CRGB * segment = GetShuttleSegment();
+        for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+        {
+            const uint8_t wave = sin8(offset + i * 32);
+            segment[i] = CHSV(5 + wave / 6, 220, 150 + (wave >> 2));
+        }
+        offset += 6;
+        FastLED.show();
+        delay(45);
+    }
+
+    void RenderShuttleBoost()
+    {
+        const uint8_t pulse = beatsin8(18, 150, 255);
+        CRGB * segment = GetShuttleSegment();
+        for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+        {
+            const uint8_t blendAmount = static_cast<uint8_t>((i * 255) / kShuttleLedCount);
+            CRGB heat = CRGB::Orange;
+            heat.nscale8_video(pulse);
+            segment[i] = blend(CRGB::White, heat, blendAmount);
+        }
+        FastLED.show();
+        delay(30);
+    }
+
+    void RunShuttleMode(ShuttleMode mode)
+    {
+        switch (mode)
+        {
+            case ShuttleMode::Flicker:
+                RenderShuttleFlicker();
+                break;
+            case ShuttleMode::Wave:
+                RenderShuttleWave();
+                break;
+            case ShuttleMode::Boost:
+                RenderShuttleBoost();
+                break;
+            default:
+                break;
+        }
+    }
+
+    ShuttleMode NextShuttleMode(ShuttleMode mode)
+    {
+        auto next = static_cast<uint8_t>(mode) + 1;
+        const auto maxModes = static_cast<uint8_t>(ShuttleMode::Count);
+        if (next >= maxModes)
+            next = 0;
+        return static_cast<ShuttleMode>(next);
+    }
+
+    void RunStreetMode(StreetMode mode)
+    {
+        switch (mode)
+        {
+            case StreetMode::Pulse:
+                RenderStreetPulse();
+                break;
+            case StreetMode::Sparkle:
+                RenderStreetSparkle();
+                break;
+            default:
+                break;
+        }
+    }
+
+    StreetMode NextStreetMode(StreetMode mode)
+    {
+        auto next = static_cast<uint8_t>(mode) + 1;
+        const auto maxModes = static_cast<uint8_t>(StreetMode::Count);
+        if (next >= maxModes)
+            next = 0;
+        return static_cast<StreetMode>(next);
+    }
 }
 
 void PostDrawHandler()
@@ -621,27 +773,35 @@ void Eyes(CRGB color = CRGB(246,200,160))
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
-    int start = 55;
-    int end = start + 2;
-    int delayTime = 70;
+    ShuttleMode currentMode = ShuttleMode::Flicker;
+    uint32_t lastModeChange = millis();
+    uint32_t lastSparkleUpdate = millis();
+    StreetMode currentStreetMode = StreetMode::Pulse;
+    uint32_t lastStreetModeChange = millis();
+
     for (;;)
     {
-        for(int i = start; i<=end; i++) {
-            leds1[i] = CRGB::Red;
+        const uint32_t now = millis();
+        if (now - lastModeChange >= kShuttleModeDurationMs)
+        {
+            currentMode = NextShuttleMode(currentMode);
+            lastModeChange = now;
         }
-        FastLED.show(); delay(delayTime);
 
-         for(int i = start; i<=end; i++) {
-            leds1[i] = CRGB::Brown;
+        if (now - lastStreetModeChange >= kStreetModeDurationMs)
+        {
+            currentStreetMode = NextStreetMode(currentStreetMode);
+            lastStreetModeChange = now;
         }
-        FastLED.show(); delay(delayTime);
 
-        EVERY_N_MILLIS(kPlanetSparkleIntervalMs)
+        if (now - lastSparkleUpdate >= kPlanetSparkleIntervalMs)
         {
             UpdatePlanetSparkles();
-            FastLED.show();
+            lastSparkleUpdate = now;
         }
 
+        RunStreetMode(currentStreetMode);
+        RunShuttleMode(currentMode);
         PostDrawHandler();
     }
 }
