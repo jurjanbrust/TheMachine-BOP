@@ -396,7 +396,7 @@ namespace
         for (uint8_t i = 0; i < kJackpotLedCount; ++i)
         {
             CRGB scaled = g_jackpotDimBuffer[i];
-            scaled.nscale8_video(64); // quarter intensity for jackpot LEDs
+            scaled.nscale8_video(18);
             leds0[i] = scaled;
         }
         FastLED.show();
