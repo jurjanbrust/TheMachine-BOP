@@ -73,6 +73,7 @@ namespace
     uint32_t g_frontheadPulseStart = 0;
     CRGB g_streetSparkleLayer[kStreetLedCount] = {};
     bool g_globalHeartActive = false;
+    const CRGB kSpotlightColor = CRGB::White;
 
 
     void UpdatePlanetSparkles()
@@ -210,6 +211,12 @@ namespace
         }
     }
 
+    void SetSpotlights(const CRGB & color)
+    {
+        leds1[spotlights1] = color;
+        leds1[spotlights2] = color;
+    }
+
     void RenderMachineRainbow()
     {
         const uint8_t baseHue = beat8(12);
@@ -299,30 +306,41 @@ namespace
             case 0:
             {
                 g_planetHighlightActive = false;
-                fadeToBlackBy(leds0, NUM_LEDS0, 20);
-                fadeToBlackBy(leds1, NUM_LEDS1, 20);
+                FlickerSpotlights(spotlights1, spotlights2, kSpotlightColor);
+                SetSpotlights(kSpotlightColor);
                 FastLED.show();
-                if (now - g_showcaseState.stageStart >= kShowcaseDimDurationMs)
-                {
-                    advanceStage(1);
-                }
+                advanceStage(1);
                 break;
             }
             case 1:
             {
                 g_planetHighlightActive = false;
-                const uint32_t elapsed = now - g_showcaseState.stageStart;
-                CRGB machineColor = CRGB(246, 200, 160);
-                machineColor.nscale8_video(ShowcaseIntensity(elapsed));
-                FillMachineRange(machineColor);
+                fadeToBlackBy(leds0, NUM_LEDS0, 20);
+                fadeToBlackBy(leds1, NUM_LEDS1, 20);
+                SetSpotlights(kSpotlightColor);
                 FastLED.show();
-                if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
+                if (now - g_showcaseState.stageStart >= kShowcaseDimDurationMs)
                 {
                     advanceStage(2);
                 }
                 break;
             }
             case 2:
+            {
+                g_planetHighlightActive = false;
+                const uint32_t elapsed = now - g_showcaseState.stageStart;
+                CRGB machineColor = CRGB(246, 200, 160);
+                machineColor.nscale8_video(ShowcaseIntensity(elapsed));
+                FillMachineRange(machineColor);
+                SetSpotlights(kSpotlightColor);
+                FastLED.show();
+                if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
+                {
+                    advanceStage(3);
+                }
+                break;
+            }
+            case 3:
             {
                 if (!g_planetHighlightActive)
                     g_frontheadPulseStart = now;
@@ -335,21 +353,23 @@ namespace
                     color.nscale8_video(intensity);
                     leds1[kPlanetIndices[i]] = color;
                 }
+                SetSpotlights(kSpotlightColor);
                 UpdateFrontheadAccent();
                 FastLED.show();
                 if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
                 {
-                    advanceStage(3);
+                    advanceStage(4);
                 }
                 break;
             }
-            case 3:
+            case 4:
             {
                 g_planetHighlightActive = false;
                 const uint32_t elapsed = now - g_showcaseState.stageStart;
                 CRGB foreheadColor = CRGB::White;
                 foreheadColor.nscale8_video(ShowcaseIntensity(elapsed));
                 leds1[fronthead] = foreheadColor;
+                SetSpotlights(kSpotlightColor);
                 FastLED.show();
                 if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
                 {
@@ -481,9 +501,10 @@ namespace
 
     void ShowJackpotDimmed()
     {
+        const bool shouldDim = g_planetHighlightActive || g_jackpotRuntime.dimOutput;
         for (uint8_t i = 0; i < kJackpotLedCount; ++i)
         {
-            leds0[i] = g_jackpotRuntime.dimOutput ? DimJackpotColor(g_jackpotFrame[i]) : g_jackpotFrame[i];
+            leds0[i] = shouldDim ? DimJackpotColor(g_jackpotFrame[i]) : g_jackpotFrame[i];
         }
         FastLED.show();
     }
@@ -756,9 +777,9 @@ namespace
             case JackpotMode::RainbowSweep:
                 StepJackpotRainbowSweep();
                 break;
-            case JackpotMode::Sparkle:
-                StepJackpotSparkle();
-                break;
+            // case JackpotMode::Sparkle:
+            //     StepJackpotSparkle();
+            //     break;
             case JackpotMode::Pulse:
                 StepJackpotPulse();
                 break;
@@ -974,6 +995,38 @@ void FlickerSpotlight(uint8_t index, const CRGB & color)
     }
 
     leds1[index] = color;
+    FastLED.show();
+}
+
+void FlickerSpotlights(uint8_t indexA, uint8_t indexB, const CRGB & color)
+{
+    if (indexA >= NUM_LEDS1 || indexB >= NUM_LEDS1)
+        return;
+
+    constexpr uint8_t kFlickerBursts = 6;
+    for (uint8_t i = 0; i < kFlickerBursts; ++i)
+    {
+        const CRGB level = (i % 2 == 0) ? CRGB::Black : color;
+        leds1[indexA] = level;
+        leds1[indexB] = level;
+        FastLED.show();
+        delay(random8(25, 90));
+    }
+
+    constexpr uint8_t kRampSteps = 4;
+    for (uint8_t step = 0; step < kRampSteps; ++step)
+    {
+        CRGB ramp = color;
+        const uint8_t scale = lerp8by8(30, 255, static_cast<uint8_t>((step * 255) / (kRampSteps - 1)));
+        ramp.nscale8_video(scale);
+        leds1[indexA] = ramp;
+        leds1[indexB] = ramp;
+        FastLED.show();
+        delay(65);
+    }
+
+    leds1[indexA] = color;
+    leds1[indexB] = color;
     FastLED.show();
 }
 
