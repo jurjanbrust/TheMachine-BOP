@@ -59,6 +59,7 @@ namespace
     bool g_planetHighlightActive = false;
     uint32_t g_frontheadPulseStart = 0;
     CRGB g_streetSparkleLayer[kStreetLedCount] = {};
+    bool g_globalHeartActive = false;
 
     void UpdatePlanetSparkles()
     {
@@ -369,6 +370,7 @@ namespace
 
     void RunGlobalHeartMode()
     {
+        g_globalHeartActive = true;
         const uint32_t start = millis();
         while (millis() - start < kGlobalHeartDurationMs)
         {
@@ -383,6 +385,7 @@ namespace
             FastLED.show();
             delay(30);
         }
+        g_globalHeartActive = false;
     }
 
     void ClearJackpotRange()
@@ -781,6 +784,12 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 
     for (;;)
     {
+        if (g_globalHeartActive)
+        {
+            PostDrawHandler();
+            continue;
+        }
+
         const uint32_t now = millis();
         if (now - lastModeChange >= kShuttleModeDurationMs)
         {
@@ -825,9 +834,22 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 {
     for (;;)
     {
+        if (g_globalHeartActive)
+        {
+            PostDrawHandler();
+            continue;
+        }
+
         for(int i=0; i<5; i++) {
             DrawWalkingDot();
             delay(1000*1);
+            if (g_globalHeartActive)
+                break;
+        }
+        if (g_globalHeartActive)
+        {
+            PostDrawHandler();
+            continue;
         }
         JackPotDefaultColors();
         delay(1000*10);
@@ -843,6 +865,12 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 
     for (;;)
     {
+        if (g_globalHeartActive)
+        {
+            PostDrawHandler();
+            continue;
+        }
+
         const uint32_t now = millis();
         if (now - lastModeChange >= kMachineModeDurationMs)
         {

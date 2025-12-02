@@ -128,8 +128,6 @@ void setup() {
     SingleLed(bigBluePlanetRightSide, CRGB::White);
     SingleLed(jupiterUpper, CRGB::White);
     SingleLed(jupiterLower, CRGB::White);
-    SingleLed(spotlights1, CRGB::White);
-    SingleLed(spotlights2, CRGB::White);
     SingleLed(fronthead, CRGB::Red);
     SingleLed(people, CRGB::White);
     SingleLed(carright1, CRGB::White);
