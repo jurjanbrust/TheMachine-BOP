@@ -1,6 +1,7 @@
 #include "globals.h"
 #include "drawing.h"
 #include <ArduinoOTA.h>             // Over-the-air helper object so we can be flashed via WiFi
+#include <cstring>
 
 // The g_buffer_mutex is a global mutex used to protect access while adding or removing frames
 // from the led buffer.  
@@ -59,6 +60,7 @@ namespace
     bool g_planetHighlightActive = false;
     uint32_t g_frontheadPulseStart = 0;
     CRGB g_streetSparkleLayer[kStreetLedCount] = {};
+    CRGB g_jackpotDimBuffer[kJackpotLedCount] = {};
     bool g_globalHeartActive = false;
 
     void UpdatePlanetSparkles()
@@ -388,6 +390,19 @@ namespace
         g_globalHeartActive = false;
     }
 
+    void ShowJackpotDimmed()
+    {
+        memcpy(g_jackpotDimBuffer, leds0, sizeof(g_jackpotDimBuffer));
+        for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+        {
+            CRGB scaled = g_jackpotDimBuffer[i];
+            scaled.nscale8_video(64); // quarter intensity for jackpot LEDs
+            leds0[i] = scaled;
+        }
+        FastLED.show();
+        memcpy(leds0, g_jackpotDimBuffer, sizeof(g_jackpotDimBuffer));
+    }
+
     void ClearJackpotRange()
     {
         for (uint8_t i = 0; i < kJackpotLedCount; ++i)
@@ -404,7 +419,7 @@ namespace
             {
                 leds0[current + i] = CRGB::Red;
             }
-            FastLED.show();
+            ShowJackpotDimmed();
             delay(300);
 
             for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
@@ -419,7 +434,7 @@ namespace
             {
                 leds0[current + i] = CRGB::Red;
             }
-            FastLED.show();
+            ShowJackpotDimmed();
             delay(300);
 
             for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
@@ -444,7 +459,7 @@ namespace
                 {
                     leds0[segment * kJackpotLedsPerSegment + led] = palette[colorIdx];
                 }
-                FastLED.show();
+                ShowJackpotDimmed();
                 delay(120);
             }
         }
@@ -462,7 +477,7 @@ namespace
         {
             leds0[left] = CRGB::Cyan;
             leds0[right] = CRGB::Magenta;
-            FastLED.show();
+            ShowJackpotDimmed();
             delay(90);
             leds0[left] = CRGB::Black;
             leds0[right] = CRGB::Black;
@@ -495,7 +510,7 @@ namespace
                 }
             }
 
-            FastLED.show();
+            ShowJackpotDimmed();
             delay(40);
         }
     }
@@ -507,7 +522,7 @@ namespace
         {
             leds0[i] = CHSV(hueBase + i * 4, 240, 255);
         }
-        FastLED.show();
+        ShowJackpotDimmed();
         hueBase += 3;
         delay(80);
     }
@@ -520,7 +535,7 @@ namespace
         {
             leds0[random8(kJackpotLedCount)] += CHSV(random8(), 200, 255);
         }
-        FastLED.show();
+        ShowJackpotDimmed();
         delay(60);
     }
 
@@ -529,7 +544,7 @@ namespace
         CRGB color = CRGB::Gold;
         color.nscale8_video(GetHeartbeatBrightness(28));
         fill_solid(leds0, kJackpotLedCount, color);
-        FastLED.show();
+        ShowJackpotDimmed();
         delay(50);
     }
 
@@ -706,7 +721,7 @@ void JackPotDefaultColors()
             leds0[vakje*6+ledje] = CRGB::Red;
         }
     }
-    FastLED.show();
+    ShowJackpotDimmed();
 }
 
 void TheMachineLogo(CRGB color = CRGB(246,200,160))
