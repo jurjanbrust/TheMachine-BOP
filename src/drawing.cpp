@@ -18,6 +18,18 @@ namespace
     constexpr uint8_t  kJackpotSegments            = 8;
     constexpr uint8_t  kJackpotLedsPerSegment      = 6;
     constexpr uint8_t  kJackpotLedCount            = kJackpotSegments * kJackpotLedsPerSegment;
+    constexpr uint8_t  kJackpotDimScale            = 80;
+    constexpr uint32_t kJackpotModeDurationMs      = 15000;
+    constexpr uint32_t kJackpotDimmedDurationMs    = 60000;
+    constexpr uint32_t kJackpotClassicIntervalMs   = 220;
+    constexpr uint32_t kJackpotFillIntervalMs      = 180;
+    constexpr uint32_t kJackpotChaseIntervalMs     = 140;
+    constexpr uint32_t kJackpotMeteorIntervalMs    = 90;
+    constexpr uint32_t kJackpotRainbowIntervalMs   = 120;
+    constexpr uint32_t kJackpotSparkleIntervalMs   = 110;
+    constexpr uint32_t kJackpotPulseIntervalMs     = 100;
+    constexpr uint32_t kJackpotPlasmaIntervalMs    = 90;
+    constexpr uint32_t kJackpotDimmedIntervalMs    = 1000;
     constexpr uint8_t  kPlanetCount                = 5;
     constexpr uint16_t kPlanetSparkleIntervalMs    = 150;
     constexpr uint8_t  kPlanetSparkleDecay         = 220;
@@ -60,8 +72,8 @@ namespace
     bool g_planetHighlightActive = false;
     uint32_t g_frontheadPulseStart = 0;
     CRGB g_streetSparkleLayer[kStreetLedCount] = {};
-    CRGB g_jackpotDimBuffer[kJackpotLedCount] = {};
     bool g_globalHeartActive = false;
+
 
     void UpdatePlanetSparkles()
     {
@@ -116,6 +128,7 @@ namespace
         Sparkle,
         Scanner,
         Showcase,
+        Idle,
         Count
     };
 
@@ -128,6 +141,8 @@ namespace
         RainbowSweep,
         Sparkle,
         Pulse,
+        Plasma,
+        DimmedHold,
         Count
     };
 
@@ -146,6 +161,23 @@ namespace
         Sparkle,
         Count
     };
+
+    struct JackpotRuntime
+    {
+        JackpotMode mode = JackpotMode::Classic;
+        uint32_t modeStart = 0;
+        uint32_t nextFrame = 0;
+        uint32_t frameInterval = kJackpotClassicIntervalMs;
+        uint32_t modeDuration = kJackpotModeDurationMs;
+        uint8_t step = 0;
+        uint8_t secondary = 0;
+        bool forward = true;
+        uint8_t hueBase = 0;
+        bool dimOutput = true;
+    };
+
+    JackpotRuntime g_jackpotRuntime;
+    CRGB g_jackpotFrame[kJackpotLedCount];
 
     static const uint8_t kHeartbeatTable[] = {
         25,  61, 105, 153, 197, 233, 253, 255,
@@ -332,6 +364,13 @@ namespace
         }
     }
 
+    void RenderMachineIdle()
+    {
+        static const CRGB idleColor(246, 200, 160);
+        FillMachineRange(idleColor);
+        FastLED.show();
+    }
+
     void RunMachineMode(MachineMode mode)
     {
         if (mode != MachineMode::Showcase)
@@ -356,18 +395,40 @@ namespace
             case MachineMode::Showcase:
                 RenderMachineShowcase();
                 break;
+            case MachineMode::Idle:
+                RenderMachineIdle();
+                break;
             default:
                 break;
         }
     }
 
-    MachineMode NextMachineMode(MachineMode mode)
+    MachineMode NextActiveMachineMode(MachineMode mode)
     {
-        auto next = static_cast<uint8_t>(mode) + 1;
-        const auto maxModes = static_cast<uint8_t>(MachineMode::Count);
-        if (next >= maxModes)
-            next = 0;
-        return static_cast<MachineMode>(next);
+        static const MachineMode kActiveModes[] = {
+            MachineMode::Rainbow,
+            MachineMode::Pulse,
+            MachineMode::Sparkle,
+            MachineMode::Scanner,
+            MachineMode::Showcase
+        };
+        constexpr size_t kActiveCount = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
+
+        size_t idx = 0;
+        for (; idx < kActiveCount; ++idx)
+        {
+            if (kActiveModes[idx] == mode)
+                break;
+        }
+        if (idx >= kActiveCount)
+        {
+            idx = 0;
+        }
+        else
+        {
+            idx = (idx + 1) % kActiveCount;
+        }
+        return kActiveModes[idx];
     }
 
     void RunGlobalHeartMode()
@@ -390,188 +451,322 @@ namespace
         g_globalHeartActive = false;
     }
 
-    void ShowJackpotDimmed()
+    CRGB DimJackpotColor(CRGB color)
     {
-        memcpy(g_jackpotDimBuffer, leds0, sizeof(g_jackpotDimBuffer));
-        for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+        color.nscale8_video(kJackpotDimScale);
+        return color;
+    }
+
+    void SetJackpotLed(uint8_t index, const CRGB & color)
+    {
+        g_jackpotFrame[index] = color;
+    }
+
+    void FillJackpotSegment(uint8_t segment, const CRGB & color)
+    {
+        const uint8_t base = segment * kJackpotLedsPerSegment;
+        for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
         {
-            CRGB scaled = g_jackpotDimBuffer[i];
-            scaled.nscale8_video(18);
-            leds0[i] = scaled;
+            SetJackpotLed(base + i, color);
         }
-        FastLED.show();
-        memcpy(leds0, g_jackpotDimBuffer, sizeof(g_jackpotDimBuffer));
     }
 
     void ClearJackpotRange()
     {
         for (uint8_t i = 0; i < kJackpotLedCount; ++i)
         {
-            leds0[i] = CRGB::Black;
+            g_jackpotFrame[i] = CRGB::Black;
         }
     }
 
-    void RunJackpotClassic()
+    void ShowJackpotDimmed()
     {
-        for (uint8_t current = 0; current < kJackpotLedCount; current += kJackpotLedsPerSegment)
-        {
-            for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
-            {
-                leds0[current + i] = CRGB::Red;
-            }
-            ShowJackpotDimmed();
-            delay(300);
-
-            for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
-            {
-                leds0[current + i] = CRGB::Black;
-            }
-        }
-
-        for (int current = kJackpotLedCount - kJackpotLedsPerSegment; current >= 0; current -= kJackpotLedsPerSegment)
-        {
-            for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
-            {
-                leds0[current + i] = CRGB::Red;
-            }
-            ShowJackpotDimmed();
-            delay(300);
-
-            for (uint8_t i = 0; i < kJackpotLedsPerSegment; ++i)
-            {
-                leds0[current + i] = CRGB::Black;
-            }
-        }
-    }
-
-    void RunJackpotAlternatingFill()
-    {
-        static const CRGB palette[] = { CRGB::DarkOrange, CRGB::Gold, CRGB::Red };
-        constexpr size_t paletteSize = sizeof(palette) / sizeof(palette[0]);
-
-        ClearJackpotRange();
-
-        for (size_t colorIdx = 0; colorIdx < paletteSize; ++colorIdx)
-        {
-            for (uint8_t segment = 0; segment < kJackpotSegments; ++segment)
-            {
-                for (uint8_t led = 0; led < kJackpotLedsPerSegment; ++led)
-                {
-                    leds0[segment * kJackpotLedsPerSegment + led] = palette[colorIdx];
-                }
-                ShowJackpotDimmed();
-                delay(120);
-            }
-        }
-
-        ClearJackpotRange();
-    }
-
-    void RunJackpotDualChase()
-    {
-        ClearJackpotRange();
-        int left = 0;
-        int right = kJackpotLedCount - 1;
-
-        while (left <= right)
-        {
-            leds0[left] = CRGB::Cyan;
-            leds0[right] = CRGB::Magenta;
-            ShowJackpotDimmed();
-            delay(90);
-            leds0[left] = CRGB::Black;
-            leds0[right] = CRGB::Black;
-            ++left;
-            --right;
-        }
-    }
-
-    void RunJackpotMeteor()
-    {
-        ClearJackpotRange();
-        const CRGB meteorColor = CRGB::DeepSkyBlue;
-        constexpr uint8_t meteorSize = 5;
-        constexpr uint8_t trailDecay = 70;
-        const int totalSteps = kJackpotLedCount + kJackpotLedsPerSegment;
-
-        for (int step = 0; step < totalSteps; ++step)
-        {
-            for (uint8_t i = 0; i < kJackpotLedCount; ++i)
-            {
-                leds0[i].fadeToBlackBy(trailDecay);
-            }
-
-            for (uint8_t i = 0; i < meteorSize; ++i)
-            {
-                int idx = step - i;
-                if (idx >= 0 && idx < kJackpotLedCount)
-                {
-                    leds0[idx] = meteorColor;
-                }
-            }
-
-            ShowJackpotDimmed();
-            delay(40);
-        }
-    }
-
-    void RunJackpotRainbowSweep()
-    {
-        static uint8_t hueBase = 0;
         for (uint8_t i = 0; i < kJackpotLedCount; ++i)
         {
-            leds0[i] = CHSV(hueBase + i * 4, 240, 255);
+            leds0[i] = g_jackpotRuntime.dimOutput ? DimJackpotColor(g_jackpotFrame[i]) : g_jackpotFrame[i];
         }
-        ShowJackpotDimmed();
-        hueBase += 3;
-        delay(80);
+        FastLED.show();
     }
 
-    void RunJackpotSparkle()
+    void ApplyJackpotDefaultColors()
     {
-        fadeToBlackBy(leds0, kJackpotLedCount, 40);
-        constexpr uint8_t sparkleCount = 5;
-        for (uint8_t i = 0; i < sparkleCount; ++i)
+        for (uint8_t segment = 0; segment < kJackpotSegments; ++segment)
         {
-            leds0[random8(kJackpotLedCount)] += CHSV(random8(), 200, 255);
+            const CRGB color = (segment < (kJackpotSegments / 2)) ? CRGB::DarkOrange : CRGB::Red;
+            FillJackpotSegment(segment, color);
         }
-        ShowJackpotDimmed();
-        delay(60);
     }
 
-    void RunJackpotPulse()
-    {
-        CRGB color = CRGB::Gold;
-        color.nscale8_video(GetHeartbeatBrightness(28));
-        fill_solid(leds0, kJackpotLedCount, color);
-        ShowJackpotDimmed();
-        delay(50);
-    }
-
-    void RunJackpotMode(JackpotMode mode)
+    uint32_t JackpotIntervalForMode(JackpotMode mode)
     {
         switch (mode)
         {
             case JackpotMode::Classic:
-                RunJackpotClassic();
+                return kJackpotClassicIntervalMs;
+            case JackpotMode::AlternatingFill:
+                return kJackpotFillIntervalMs;
+            case JackpotMode::DualChase:
+                return kJackpotChaseIntervalMs;
+            case JackpotMode::Meteor:
+                return kJackpotMeteorIntervalMs;
+            case JackpotMode::RainbowSweep:
+                return kJackpotRainbowIntervalMs;
+            case JackpotMode::Sparkle:
+                return kJackpotSparkleIntervalMs;
+            case JackpotMode::Pulse:
+                return kJackpotPulseIntervalMs;
+            case JackpotMode::Plasma:
+                return kJackpotPlasmaIntervalMs;
+            case JackpotMode::DimmedHold:
+                return kJackpotDimmedIntervalMs;
+            default:
+                return kJackpotClassicIntervalMs;
+        }
+    }
+
+    uint32_t JackpotDurationForMode(JackpotMode mode)
+    {
+        if (mode == JackpotMode::DimmedHold)
+        {
+            return kJackpotDimmedDurationMs;
+        }
+        return kJackpotModeDurationMs;
+    }
+
+    void ResetJackpotRuntime(JackpotMode mode, uint32_t now)
+    {
+        g_jackpotRuntime = JackpotRuntime{};
+        g_jackpotRuntime.mode = mode;
+        g_jackpotRuntime.modeStart = now;
+        g_jackpotRuntime.nextFrame = now;
+        g_jackpotRuntime.frameInterval = JackpotIntervalForMode(mode);
+        g_jackpotRuntime.modeDuration = JackpotDurationForMode(mode);
+        g_jackpotRuntime.dimOutput = true;
+
+        bool shouldClear = true;
+        switch (mode)
+        {
+            case JackpotMode::Classic:
+                g_jackpotRuntime.step = 0;
+                g_jackpotRuntime.secondary = kJackpotSegments;
+                g_jackpotRuntime.forward = true;
                 break;
             case JackpotMode::AlternatingFill:
-                RunJackpotAlternatingFill();
+                g_jackpotRuntime.step = 0;
+                g_jackpotRuntime.secondary = 0;
+                g_jackpotRuntime.dimOutput = false;
                 break;
             case JackpotMode::DualChase:
-                RunJackpotDualChase();
+                g_jackpotRuntime.step = 0;
+                g_jackpotRuntime.secondary = kJackpotLedCount - 1;
+                g_jackpotRuntime.dimOutput = false;
                 break;
             case JackpotMode::Meteor:
-                RunJackpotMeteor();
+                g_jackpotRuntime.step = 0;
                 break;
             case JackpotMode::RainbowSweep:
-                RunJackpotRainbowSweep();
+                g_jackpotRuntime.hueBase = 0;
+                break;
+            case JackpotMode::Plasma:
+                g_jackpotRuntime.step = 0;
+                g_jackpotRuntime.hueBase = 0;
+                break;
+            case JackpotMode::DimmedHold:
+                ApplyJackpotDefaultColors();
+                g_jackpotRuntime.step = 0;
+                shouldClear = false;
                 break;
             case JackpotMode::Sparkle:
-                RunJackpotSparkle();
+            case JackpotMode::Pulse:
+            default:
+                break;
+        }
+
+        if (shouldClear)
+        {
+            ClearJackpotRange();
+        }
+    }
+
+    void StepJackpotClassic()
+    {
+        if (g_jackpotRuntime.secondary < kJackpotSegments && g_jackpotRuntime.secondary != g_jackpotRuntime.step)
+        {
+            FillJackpotSegment(g_jackpotRuntime.secondary, CRGB::Black);
+        }
+        FillJackpotSegment(g_jackpotRuntime.step, CRGB::Red);
+        g_jackpotRuntime.secondary = g_jackpotRuntime.step;
+
+        if (g_jackpotRuntime.forward)
+        {
+            if (g_jackpotRuntime.step >= kJackpotSegments - 1)
+            {
+                g_jackpotRuntime.forward = false;
+                if (kJackpotSegments > 1)
+                    g_jackpotRuntime.step = kJackpotSegments - 2;
+            }
+            else
+            {
+                ++g_jackpotRuntime.step;
+            }
+        }
+        else
+        {
+            if (g_jackpotRuntime.step == 0 || kJackpotSegments == 1)
+            {
+                g_jackpotRuntime.forward = true;
+                if (kJackpotSegments > 1)
+                    g_jackpotRuntime.step = 1;
+            }
+            else
+            {
+                --g_jackpotRuntime.step;
+            }
+        }
+    }
+
+    void StepJackpotAlternatingFill()
+    {
+        static const CRGB palette[] = { CRGB::DarkOrange, CRGB::Gold, CRGB::Red };
+        constexpr size_t paletteSize = sizeof(palette) / sizeof(palette[0]);
+
+        FillJackpotSegment(g_jackpotRuntime.step, palette[g_jackpotRuntime.secondary]);
+        ++g_jackpotRuntime.step;
+
+        if (g_jackpotRuntime.step >= kJackpotSegments)
+        {
+            g_jackpotRuntime.step = 0;
+            g_jackpotRuntime.secondary = static_cast<uint8_t>((g_jackpotRuntime.secondary + 1) % paletteSize);
+            if (g_jackpotRuntime.secondary == 0)
+            {
+                ClearJackpotRange();
+            }
+        }
+    }
+
+    void StepJackpotDualChase()
+    {
+        ClearJackpotRange();
+        uint8_t left = g_jackpotRuntime.step;
+        uint8_t right = g_jackpotRuntime.secondary;
+        if (left < kJackpotLedCount)
+            SetJackpotLed(left, CRGB::Cyan);
+        if (right < kJackpotLedCount)
+            SetJackpotLed(right, CRGB::Magenta);
+
+        if (left >= right || right == 0)
+        {
+            g_jackpotRuntime.step = 0;
+            g_jackpotRuntime.secondary = kJackpotLedCount - 1;
+        }
+        else
+        {
+            ++g_jackpotRuntime.step;
+            --g_jackpotRuntime.secondary;
+        }
+    }
+
+    void StepJackpotMeteor()
+    {
+        constexpr uint8_t meteorSize = 5;
+        constexpr uint8_t trailDecay = 70;
+        const int totalSteps = kJackpotLedCount + kJackpotLedsPerSegment;
+
+        fadeToBlackBy(g_jackpotFrame, kJackpotLedCount, trailDecay);
+        for (uint8_t i = 0; i < meteorSize; ++i)
+        {
+            int idx = static_cast<int>(g_jackpotRuntime.step) - i;
+            if (idx >= 0 && idx < kJackpotLedCount)
+            {
+                g_jackpotFrame[idx] = CRGB::DeepSkyBlue;
+            }
+        }
+        ++g_jackpotRuntime.step;
+        if (g_jackpotRuntime.step >= totalSteps)
+        {
+            g_jackpotRuntime.step = 0;
+        }
+    }
+
+    void StepJackpotRainbowSweep()
+    {
+        for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+        {
+            g_jackpotFrame[i] = CHSV(g_jackpotRuntime.hueBase + i * 4, 240, 255);
+        }
+        g_jackpotRuntime.hueBase += 3;
+    }
+
+    void StepJackpotSparkle()
+    {
+        constexpr uint8_t sparkleCount = 5;
+        fadeToBlackBy(g_jackpotFrame, kJackpotLedCount, 40);
+        for (uint8_t i = 0; i < sparkleCount; ++i)
+        {
+            g_jackpotFrame[random8(kJackpotLedCount)] += CHSV(random8(), 200, 255);
+        }
+    }
+
+    void StepJackpotPulse()
+    {
+        CRGB color = CRGB::Gold;
+        color.nscale8_video(GetHeartbeatBrightness(28));
+        fill_solid(g_jackpotFrame, kJackpotLedCount, color);
+    }
+
+    void StepJackpotPlasma()
+    {
+        for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+        {
+            const uint8_t waveA = sin8(g_jackpotRuntime.hueBase + i * 8);
+            const uint8_t waveB = sin8(g_jackpotRuntime.step + i * 16);
+            const uint8_t blend = qadd8(waveA, waveB) / 2;
+            g_jackpotFrame[i] = CHSV(waveA + g_jackpotRuntime.hueBase, 200, blend);
+        }
+
+        g_jackpotRuntime.hueBase += 3;
+        g_jackpotRuntime.step += 5;
+    }
+
+    void StepJackpotDimmedHold()
+    {
+        if (g_jackpotRuntime.step == 0)
+        {
+            ApplyJackpotDefaultColors();
+            g_jackpotRuntime.step = 1;
+        }
+    }
+
+    void StepCurrentJackpotMode()
+    {
+        switch (g_jackpotRuntime.mode)
+        {
+            case JackpotMode::Classic:
+                StepJackpotClassic();
+                break;
+            case JackpotMode::AlternatingFill:
+                StepJackpotAlternatingFill();
+                break;
+            case JackpotMode::DualChase:
+                StepJackpotDualChase();
+                break;
+            case JackpotMode::Meteor:
+                StepJackpotMeteor();
+                break;
+            case JackpotMode::RainbowSweep:
+                StepJackpotRainbowSweep();
+                break;
+            case JackpotMode::Sparkle:
+                StepJackpotSparkle();
                 break;
             case JackpotMode::Pulse:
-                RunJackpotPulse();
+                StepJackpotPulse();
+                break;
+            case JackpotMode::Plasma:
+                StepJackpotPlasma();
+                break;
+            case JackpotMode::DimmedHold:
+                StepJackpotDimmedHold();
                 break;
             default:
                 break;
@@ -585,6 +780,29 @@ namespace
         if (next >= maxModes)
             next = 0;
         return static_cast<JackpotMode>(next);
+    }
+
+    void UpdateJackpotAnimations()
+    {
+        const uint32_t now = millis();
+        if (g_jackpotRuntime.modeStart == 0)
+        {
+            ResetJackpotRuntime(g_jackpotRuntime.mode, now);
+        }
+
+        if (now - g_jackpotRuntime.modeStart >= g_jackpotRuntime.modeDuration)
+        {
+            ResetJackpotRuntime(NextJackpotMode(g_jackpotRuntime.mode), now);
+        }
+
+        if (now < g_jackpotRuntime.nextFrame)
+        {
+            return;
+        }
+
+        StepCurrentJackpotMode();
+        ShowJackpotDimmed();
+        g_jackpotRuntime.nextFrame = now + g_jackpotRuntime.frameInterval;
     }
 
     CRGB * GetShuttleSegment()
@@ -697,33 +915,6 @@ void PostDrawHandler()
     delay(5);
 }
 
-// used for pinbot jackpot
-void DrawWalkingDot()
-{
-    static JackpotMode currentMode = JackpotMode::Classic;
-    RunJackpotMode(currentMode);
-    currentMode = NextJackpotMode(currentMode);
-}
-
-void JackPotDefaultColors()
-{
-    // jackpot = 8 vakjes met 6 leds per stuk
-    // eerste 4 = geel
-    // laatste 4 = rood
-    for(int vakje = 0; vakje < 4; vakje++) {
-        for(int ledje = 0; ledje < 6; ledje++) {
-            leds0[vakje*6+ledje] = CRGB::DarkOrange;
-        }
-    }
-
-    for(int vakje = 4; vakje < 8; vakje++) {
-        for(int ledje = 0; ledje < 6; ledje++) {
-            leds0[vakje*6+ledje] = CRGB::Red;
-        }
-    }
-    ShowJackpotDimmed();
-}
-
 void TheMachineLogo(CRGB color = CRGB(246,200,160))
 {
         int start = 8;
@@ -756,6 +947,34 @@ void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int ever
         }
 
         FastLED.show();
+}
+
+void FlickerSpotlight(uint8_t index, const CRGB & color)
+{
+    if (index >= NUM_LEDS1)
+        return;
+
+    constexpr uint8_t kFlickerBursts = 6;
+    for (uint8_t i = 0; i < kFlickerBursts; ++i)
+    {
+        leds1[index] = (i % 2 == 0) ? CRGB::Black : color;
+        FastLED.show();
+        delay(random8(25, 90));
+    }
+
+    constexpr uint8_t kRampSteps = 4;
+    for (uint8_t step = 0; step < kRampSteps; ++step)
+    {
+        CRGB ramp = color;
+        const uint8_t scale = lerp8by8(30, 255, static_cast<uint8_t>((step * 255) / (kRampSteps - 1)));
+        ramp.nscale8_video(scale);
+        leds1[index] = ramp;
+        FastLED.show();
+        delay(65);
+    }
+
+    leds1[index] = color;
+    FastLED.show();
 }
 
 void Heartbeat(int channel)
@@ -847,27 +1066,14 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
 // jackpot (been)
 void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 {
+    ResetJackpotRuntime(JackpotMode::Classic, millis());
     for (;;)
     {
-        if (g_globalHeartActive)
+        if (!g_globalHeartActive)
         {
-            PostDrawHandler();
-            continue;
+            UpdateJackpotAnimations();
         }
 
-        for(int i=0; i<5; i++) {
-            DrawWalkingDot();
-            delay(1000*1);
-            if (g_globalHeartActive)
-                break;
-        }
-        if (g_globalHeartActive)
-        {
-            PostDrawHandler();
-            continue;
-        }
-        JackPotDefaultColors();
-        delay(1000*10);
         PostDrawHandler();
     }
 }
@@ -875,7 +1081,8 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 // the machine logo
 void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 {
-    MachineMode currentMode = MachineMode::Rainbow;
+    MachineMode currentActiveMode = MachineMode::Rainbow;
+    MachineMode currentMode = currentActiveMode;
     uint32_t lastModeChange = millis();
 
     for (;;)
@@ -889,8 +1096,16 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
         const uint32_t now = millis();
         if (now - lastModeChange >= kMachineModeDurationMs)
         {
-            currentMode = NextMachineMode(currentMode);
             lastModeChange = now;
+            if (currentMode == MachineMode::Idle)
+            {
+                currentActiveMode = NextActiveMachineMode(currentActiveMode);
+                currentMode = currentActiveMode;
+            }
+            else
+            {
+                currentMode = MachineMode::Idle;
+            }
             debugI("Switching The Machine mode to %u", static_cast<unsigned>(currentMode));
         }
 
