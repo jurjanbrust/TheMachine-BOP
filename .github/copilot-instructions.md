@@ -62,7 +62,7 @@ The display runs four concurrent FreeRTOS tasks on core 1, plus a heartbeat task
 
 ### The Machine Logo Modes (`MachineMode`)
 
-Cycles through active modes, with an **Idle** rest period between each. Each active mode runs for 60 seconds, then Idle for 60 seconds, then the next active mode.
+Cycles through active modes, with an **Idle** rest period between each. Each active mode runs for 30 seconds, then Idle for 2 minutes, then the next active mode.
 
 | Mode | Description |
 |---|---|
@@ -70,10 +70,11 @@ Cycles through active modes, with an **Idle** rest period between each. Each act
 | **Pulse** | All logo LEDs pulse DeepPink using a heartbeat brightness curve (30 BPM) |
 | **Sparkle** | Random white sparkle flashes on the logo with fade-to-black decay |
 | **Scanner** | Single red LED bounces back and forth (Larson scanner / Knight Rider style) |
-| **Showcase** | Multi-stage theatrical sequence: blacks out all LEDs, then spotlights flicker like fluorescent tubes turning on for 10 seconds while everything else stays dark. All other animation tasks (shuttle, heartbeat, jackpot) pause during the flicker via the `g_showcaseActive` flag. Once the spotlights are permanently lit, the logo ramps up in warm white (246,200,160) and planets fade in to their base colors. Holds until the mode duration expires. 3 stages. |
+| **Comet** | Bright white pixel sweeps across the 10 logo LEDs leaving a warm-white fading trail (shooting star effect) |
+| **Showcase** | Multi-stage theatrical sequence: blacks out all LEDs, then spotlights flicker like fluorescent tubes turning on for 10 seconds while everything else stays dark. All other animation tasks (shuttle, heartbeat, jackpot) pause during the flicker via the `g_showcaseActive` flag. Once the spotlights are permanently lit, the logo ramps up in warm white (246,200,160) and planets fade in to their base colors. During hold, spotlights slowly wash through warm tones (white → warm white → soft amber → back). 3 stages. |
 | **Idle** | Solid warm white (246,200,160) fill — rest state between active modes |
 
-**Rotation order:** Rainbow → Idle → Pulse → Idle → Sparkle → Idle → Scanner → Idle → Showcase → Idle → (repeat)
+**Rotation order:** Rainbow → Idle → Pulse → Idle → Sparkle → Idle → Scanner → Idle → Comet → Idle → Showcase → Idle → (repeat)
 
 ---
 
@@ -137,13 +138,60 @@ The 5 planet LEDs (moon, blue planet left/right, Jupiter upper/lower) receive co
 
 ---
 
+### Jackpot Win Celebration
+
+Triggered via HTTP API (`/jackpot`) or automatically every **10 minutes** (`kAutoJackpotIntervalMs = 600000`). Overrides normal jackpot animation for 5 seconds:
+
+1. **Rainbow Flash (2s):** Rapid rainbow hue cycling across all 48 jackpot LEDs at 120 BPM
+2. **Golden Cascade (3s):** Segments fill one by one with Gold, random white sparkles flash on filled LEDs then blend back to gold
+
+After completion, the jackpot ring resets to Classic mode and resumes normal rotation.
+
+---
+
+### Bride Animation Modes (`BrideMode`)
+
+The 33 bride-outline LEDs (scattered across strip 1) alternate between two animation modes, each running for 20 seconds. Driven by `UpdateBrideAnimation()` in the shuttle task loop.
+
+| Mode | Description |
+|---|---|
+| **Aurora** | Northern lights effect using overlapping sine waves. Hues shift through green-teal-purple range with organic flowing brightness. Creates a living, breathing silhouette. |
+| **Starfield** | Subtle night-sky effect: bride LEDs stay very dim (4), sparse random LEDs gently twinkle up to soft white (peak 140) then slowly fade back with a long decay. ~12% spark chance per frame for a calm, understated look. |
+
+**Rotation order:** Aurora → Starfield → (repeat)
+
+---
+
+### Moon Phases
+
+The 3 moon LEDs (indices 2–4) cycle through simulated moon phases. Each phase lasts 15 seconds. The cycle is: full (3 lit, cool white) → gibbous (2 lit) → crescent (1 lit, warm gold) → new (0 lit) → crescent → gibbous → full. 7 phases total before repeating. Driven continuously from DrawLoopTaskEntryOne.
+
+---
+
+### Reactive Apple Glow
+
+The apple LED (index 81) slowly pulses between green and red at 6 BPM, creating a "forbidden fruit" temptation effect. Runs continuously from DrawLoopTaskEntryOne.
+
+---
+
+### Meteor Shower
+
+Periodically (every 20 minutes), a bright meteor streak crosses strip 1. The meteor is 6 LEDs long with a fading trail (decay 64/255 per frame), moving at 2 LEDs per frame. Each meteor spawns with a random hue at low saturation for a near-white shooting-star look. The trail is blended additively onto strip 1 so it overlays other animations. Driven from DrawLoopTaskEntryOne.
+
+---
+
+### Spotlight Color Wash
+
+During Showcase hold (stage 2), the two spotlights slowly cycle through warm tones at 6 BPM: pure white → warm white → soft amber → back. Creates a theatrical gel-filter effect. Uses `GetSpotlightWashColor()` instead of static white.
+
+---
+
 ### Global Heart Mode
 
-Every **5 minutes** (`kGlobalHeartIntervalSeconds = 300`), a 15-second global heartbeat takes over **both strips**:
+Every **5 minutes** (`kGlobalHeartIntervalSeconds = 300`), a global heartbeat takes over **both strips**:
 
-- Strip 0 fills solid Red
-- Strip 1 fills solid BlueViolet
-- Both pulse using the heartbeat brightness curve
+1. **Cross-fade transition (2s):** Snapshots the current LED state and smoothly blends both strips from their current colors toward Red (strip 0) / BlueViolet (strip 1) over 2 seconds.
+2. **Heartbeat pulse (15s):** Both strips pulse using the heartbeat brightness curve — strip 0 Red, strip 1 BlueViolet.
 - All other animations pause during this event (checked via `g_globalHeartActive` flag)
 
 ---
@@ -160,19 +208,7 @@ Four LEDs near the end of strip 0 — initialized to BlueViolet at startup, then
 
 ## Static Startup State
 
-On boot, before animation tasks start, the following elements are lit in their default colors:
-
-- The Machine logo: warm white (246,200,160)
-- The Bride outline: warm white
-- Eyes: BlueViolet
-- Fingers left corner: White
-- Moon (3 LEDs): White
-- Big Blue Planet (2 LEDs): White
-- Jupiter (2 LEDs): White
-- Front of head: Red
-- People: White
-- Cars (4 LEDs): White
-- Apple: White
+On boot, both strips start fully dark (black). The Machine logo task begins in **Showcase** mode, which runs the 10-second fluorescent tube flicker sequence as the theatrical power-on reveal. After the flicker completes, the spotlights lock on and the logo and planets ramp up. Once Showcase finishes, the normal mode rotation continues (Idle → Rainbow → ...).
 
 ---
 
@@ -182,6 +218,7 @@ On boot, before animation tasks start, the following elements are lit in their d
 |---|---|---|---|
 | `/setled` | GET | `index` (0–120) | Clears strip 1, then sets the specified LED to white |
 | `/setbrightness` | GET | `value` (0–255) | Sets global brightness and persists to NVS flash |
+| `/jackpot` | GET | *(none)* | Triggers a 5-second jackpot win celebration on the jackpot ring |
 
 ---
 
@@ -202,3 +239,6 @@ You can modify this file to:
 - Add notes about planned features or known issues
 
 Copilot will use this file as context for future conversations about this project.
+
+## copilot instructions
+Do not give a summarizing conversation history

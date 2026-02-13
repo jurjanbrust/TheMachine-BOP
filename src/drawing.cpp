@@ -13,7 +13,9 @@ namespace
 {
     constexpr uint16_t kGlobalHeartIntervalSeconds = 300;   // 5 minutes
     constexpr uint32_t kGlobalHeartDurationMs      = 15000;  // run heartbeat for 15s
-    constexpr uint32_t kMachineModeDurationMs      = 60000;  // rotate every minute
+    constexpr uint32_t kAutoJackpotIntervalMs      = 600000; // 10 minutes
+    constexpr uint32_t kMachineActiveDurationMs    = 30000;  // active mode: 30 seconds
+    constexpr uint32_t kMachineIdleDurationMs      = 120000; // idle pause: 2 minutes
     constexpr uint8_t  kMachineLedCount            = theMachineLastLed - theMachineFirstLed + 1;
     constexpr uint8_t  kJackpotSegments            = 8;
     constexpr uint8_t  kJackpotLedsPerSegment      = 6;
@@ -51,6 +53,16 @@ namespace
     constexpr uint32_t kShowcaseRampDurationMs     = 2000;
     constexpr uint32_t kShowcaseHoldDurationMs     = 1000;
     constexpr uint32_t kShowcaseFlickerDurationMs  = 10000;
+    constexpr uint32_t kMoonPhaseDurationMs        = 15000;
+    constexpr uint8_t  kMoonPhaseCount             = 7;
+    constexpr uint8_t  kAppleGlowBpm               = 6;
+    constexpr uint32_t kMeteorShowerIntervalMs     = 1200000; // 20 minutes
+    constexpr uint8_t  kMeteorShowerLength          = 6;
+    constexpr uint8_t  kMeteorShowerTrailDecay      = 64;
+    constexpr uint32_t kBrideModeDurationMs         = 20000;
+    constexpr uint8_t  kBrideLedCount               = 33;
+    constexpr uint32_t kJackpotCelebrationDurationMs = 5000;
+    constexpr uint32_t kSpotlightWashCycleMs        = 10000;
 
     constexpr uint8_t kPlanetIndices[kPlanetCount] = {
         moonTopLeft,
@@ -76,13 +88,42 @@ namespace
         carleft2
     };
 
+    constexpr uint8_t kBrideIndices[kBrideLedCount] = {
+        3,5,6,62,63,64,65,66,67,68,69,79,88,94,95,96,97,98,
+        103,104,105,106,107,108,109,110,111,112,113,115,116,117,118
+    };
+
     CRGB g_planetSparkleLayer[kPlanetCount] = {};
     bool g_planetHighlightActive = false;
     uint32_t g_frontheadPulseStart = 0;
     CRGB g_streetSparkleLayer[kStreetLedCount] = {};
     bool g_globalHeartActive = false;
     bool g_showcaseActive = false;
+    volatile bool g_jackpotCelebrationRequested = false;
+    bool g_jackpotCelebrationActive = false;
     const CRGB kSpotlightColor = CRGB::White;
+
+    // Meteor shower state
+    struct MeteorShower
+    {
+        bool active = false;
+        int16_t position = 0;
+        uint8_t hue = 0;
+        uint32_t nextSpawn = 0;
+    };
+    MeteorShower g_meteorShower;
+    CRGB g_meteorTrail[NUM_LEDS1] = {};
+
+    // Bride animation modes
+    enum class BrideMode : uint8_t
+    {
+        Aurora = 0,
+        Starfield,
+        Count
+    };
+    BrideMode g_brideMode = BrideMode::Aurora;
+    uint32_t g_brideModeStart = 0;
+    uint8_t g_brideStarfieldBrightness[kBrideLedCount] = {};
 
 
     void UpdatePlanetSparkles()
@@ -168,6 +209,7 @@ namespace
         Pulse,
         Sparkle,
         Scanner,
+        Comet,
         Showcase,
         Idle,
         Count
@@ -307,6 +349,248 @@ namespace
         delay(40);
     }
 
+    void RenderMachineComet()
+    {
+        // Fade the trail
+        fadeToBlackBy(&leds1[theMachineFirstLed], kMachineLedCount, 80);
+
+        // Comet head position sweeps back and forth
+        static uint8_t cometPos = 0;
+        static int8_t cometDir = 1;
+
+        leds1[theMachineFirstLed + cometPos] = CRGB::White;
+        // Slight warm glow behind the head
+        if (cometPos >= 1)
+        {
+            CRGB trail = CRGB(246, 200, 160);
+            trail.nscale8_video(180);
+            leds1[theMachineFirstLed + cometPos - 1] += trail;
+        }
+
+        if (cometPos == 0)
+            cometDir = 1;
+        else if (cometPos >= kMachineLedCount - 1)
+            cometDir = -1;
+        cometPos = static_cast<uint8_t>(cometPos + cometDir);
+
+        FastLED.show();
+        delay(50);
+    }
+
+    // --- Moon Phase Animation ---
+    void UpdateMoonPhases()
+    {
+        // Cycle: full (3 lit) → gibbous (2) → crescent (1) → new (0) → crescent (1) → gibbous (2) → full (3)
+        const uint32_t phaseIndex = (millis() / kMoonPhaseDurationMs) % kMoonPhaseCount;
+        // Map phase index to number of lit LEDs: 3,2,1,0,1,2,3
+        static const uint8_t kPhaseLitCount[] = {3, 2, 1, 0, 1, 2, 3};
+        const uint8_t litCount = kPhaseLitCount[phaseIndex];
+
+        // Color shifts from cool white (full) to warm gold (crescent)
+        const uint8_t warmth = (litCount == 3) ? 0 : (litCount == 2) ? 60 : (litCount == 1) ? 120 : 0;
+        const CRGB moonColor = CRGB(255, 255 - warmth / 3, 255 - warmth);
+
+        for (uint8_t i = 0; i < 3; ++i)
+        {
+            if (i < litCount)
+                leds1[moonTopLeft + i] = moonColor;
+            else
+                leds1[moonTopLeft + i] = CRGB::Black;
+        }
+    }
+
+    // --- Reactive Apple Glow ---
+    void UpdateAppleGlow()
+    {
+        // Slow pulse between green and red
+        const uint8_t blend = beatsin8(kAppleGlowBpm, 0, 255);
+        leds1[apple] = CRGB(blend, 255 - blend, 0);
+    }
+
+    // --- Aurora / Northern Lights on The Bride ---
+    void RenderBrideAurora()
+    {
+        const uint32_t now = millis();
+        for (uint8_t i = 0; i < kBrideLedCount; ++i)
+        {
+            // Overlapping sine waves for organic movement
+            const uint8_t waveA = sin8((now / 23) + i * 19);
+            const uint8_t waveB = sin8((now / 37) + i * 31);
+            const uint8_t combined = qadd8(waveA, waveB) / 2;
+
+            // Aurora palette: greens, teals, purples, blues
+            // Hue centered around green-teal (96) with purple shifts
+            const uint8_t hue = 80 + (waveA / 4) + (waveB / 8);
+            const uint8_t sat = qadd8(180, waveB / 4);
+            const uint8_t val = scale8(combined, 200);
+
+            leds1[kBrideIndices[i]] = CHSV(hue, sat, val);
+        }
+    }
+
+    // --- Starfield on The Bride ---
+    void RenderBrideStarfield()
+    {
+        for (uint8_t i = 0; i < kBrideLedCount; ++i)
+        {
+            // Slow gentle fade — scale8 with 235 gives a longer, softer decay
+            if (g_brideStarfieldBrightness[i] > 2)
+                g_brideStarfieldBrightness[i] = scale8(g_brideStarfieldBrightness[i], 235);
+            else
+                g_brideStarfieldBrightness[i] = 0;
+
+            // Very dim base — barely visible starlight
+            const uint8_t baseDim = 4;
+            const uint8_t brightness = max(baseDim, g_brideStarfieldBrightness[i]);
+            // Slight cool-white tint
+            leds1[kBrideIndices[i]] = CRGB(brightness, brightness, brightness + (brightness >> 3));
+        }
+
+        // Sparse twinkle — ~12% chance per frame, peak at 140 (not full white)
+        if (random8() < 30)
+        {
+            const uint8_t idx = random8(kBrideLedCount);
+            g_brideStarfieldBrightness[idx] = 140;
+        }
+    }
+
+    void UpdateBrideAnimation()
+    {
+        const uint32_t now = millis();
+        if (g_brideModeStart == 0)
+            g_brideModeStart = now;
+
+        if (now - g_brideModeStart >= kBrideModeDurationMs)
+        {
+            g_brideMode = static_cast<BrideMode>(
+                (static_cast<uint8_t>(g_brideMode) + 1) % static_cast<uint8_t>(BrideMode::Count));
+            g_brideModeStart = now;
+            memset(g_brideStarfieldBrightness, 0, sizeof(g_brideStarfieldBrightness));
+        }
+
+        switch (g_brideMode)
+        {
+            case BrideMode::Aurora:
+                RenderBrideAurora();
+                break;
+            case BrideMode::Starfield:
+                RenderBrideStarfield();
+                break;
+            default:
+                break;
+        }
+    }
+
+    // --- Meteor Shower across Strip 1 ---
+    void UpdateMeteorShower()
+    {
+        const uint32_t now = millis();
+
+        // Fade the trail layer
+        for (uint16_t i = 0; i < NUM_LEDS1; ++i)
+            g_meteorTrail[i].fadeToBlackBy(kMeteorShowerTrailDecay);
+
+        if (!g_meteorShower.active)
+        {
+            if (now >= g_meteorShower.nextSpawn)
+            {
+                // Spawn a new meteor
+                g_meteorShower.active = true;
+                g_meteorShower.position = 0;
+                g_meteorShower.hue = random8();
+                g_meteorShower.nextSpawn = now + kMeteorShowerIntervalMs;
+            }
+        }
+        else
+        {
+            // Draw the meteor head and trail
+            for (uint8_t j = 0; j < kMeteorShowerLength; ++j)
+            {
+                int16_t pos = g_meteorShower.position - j;
+                if (pos >= 0 && pos < NUM_LEDS1)
+                {
+                    const uint8_t brightness = 255 - (j * (200 / kMeteorShowerLength));
+                    g_meteorTrail[pos] = CHSV(g_meteorShower.hue, 100, brightness);
+                }
+            }
+
+            g_meteorShower.position += 2;  // Speed: 2 LEDs per frame
+            if (g_meteorShower.position >= NUM_LEDS1 + kMeteorShowerLength)
+            {
+                g_meteorShower.active = false;
+            }
+        }
+
+        // Blend meteor trail onto strip 1 (additive)
+        for (uint16_t i = 0; i < NUM_LEDS1; ++i)
+            leds1[i] += g_meteorTrail[i];
+    }
+
+    // --- Jackpot Win Celebration ---
+    void RunJackpotCelebration()
+    {
+        g_jackpotCelebrationActive = true;
+        const uint32_t start = millis();
+
+        // Phase 1: Rapid rainbow flash (2 seconds)
+        while (millis() - start < 2000)
+        {
+            const uint8_t hue = beat8(120);
+            for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+            {
+                leds0[i] = CHSV(hue + i * 5, 255, 255);
+            }
+            FastLED.show();
+            delay(20);
+        }
+
+        // Phase 2: Golden cascade fill with sparkle (3 seconds)
+        const uint32_t phase2Start = millis();
+        uint8_t filledSegments = 0;
+        while (millis() - phase2Start < 3000)
+        {
+            const uint32_t elapsed = millis() - phase2Start;
+            const uint8_t targetSegments = static_cast<uint8_t>(
+                min(static_cast<uint32_t>(kJackpotSegments), (elapsed * kJackpotSegments) / 2500));
+
+            // Fill new segments with gold
+            while (filledSegments < targetSegments)
+            {
+                const uint8_t base = filledSegments * kJackpotLedsPerSegment;
+                for (uint8_t j = 0; j < kJackpotLedsPerSegment; ++j)
+                    leds0[base + j] = CRGB::Gold;
+                ++filledSegments;
+            }
+
+            // Random sparkle on filled LEDs
+            if (filledSegments > 0)
+            {
+                const uint8_t sparkIdx = random8(filledSegments * kJackpotLedsPerSegment);
+                leds0[sparkIdx] = CRGB::White;
+            }
+
+            FastLED.show();
+            delay(30);
+
+            // Fade sparkles back to gold
+            for (uint8_t i = 0; i < filledSegments * kJackpotLedsPerSegment; ++i)
+            {
+                leds0[i] = blend(leds0[i], CRGB::Gold, 60);
+            }
+        }
+
+        g_jackpotCelebrationActive = false;
+    }
+
+    // --- Spotlight Color Wash (during Showcase hold) ---
+    CRGB GetSpotlightWashColor()
+    {
+        // Slow cycle: white → warm white → soft amber → back
+        const uint8_t progress = beatsin8(6, 0, 255);
+        // Interpolate from pure white to warm amber
+        return CRGB(255, lerp8by8(255, 200, progress), lerp8by8(255, 140, progress));
+    }
+
     struct ShowcaseState
     {
         bool initialized = false;
@@ -411,9 +695,9 @@ namespace
                 }
                 break;
             }
-            case 2: // Hold — spotlights, logo, and planets stay lit
+            case 2: // Hold — spotlights wash color, logo, and planets stay lit
             {
-                SetSpotlights(kSpotlightColor);
+                SetSpotlights(GetSpotlightWashColor());
                 FillMachineRange(CRGB(246, 200, 160));
                 for (uint8_t i = 0; i < kPlanetCount; ++i)
                 {
@@ -457,6 +741,9 @@ namespace
             case MachineMode::Scanner:
                 RenderMachineScanner();
                 break;
+            case MachineMode::Comet:
+                RenderMachineComet();
+                break;
             case MachineMode::Showcase:
                 RenderMachineShowcase();
                 break;
@@ -475,6 +762,7 @@ namespace
             MachineMode::Pulse,
             MachineMode::Sparkle,
             MachineMode::Scanner,
+            MachineMode::Comet,
             MachineMode::Showcase
         };
         constexpr size_t kActiveCount = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
@@ -499,6 +787,36 @@ namespace
     void RunGlobalHeartMode()
     {
         g_globalHeartActive = true;
+
+        // --- Transition: cross-fade current state to heart colors over 2 seconds ---
+        // Snapshot the current LED state
+        CRGB snapshot0[NUM_LEDS0];
+        CRGB snapshot1[NUM_LEDS1];
+        memcpy(snapshot0, leds0, sizeof(snapshot0));
+        memcpy(snapshot1, leds1, sizeof(snapshot1));
+
+        constexpr uint32_t kFadeInDurationMs = 2000;
+        const uint32_t fadeStart = millis();
+        while (millis() - fadeStart < kFadeInDurationMs)
+        {
+            const uint32_t elapsed = millis() - fadeStart;
+            const uint8_t blendAmount = static_cast<uint8_t>(
+                min(255UL, (elapsed * 255UL) / kFadeInDurationMs));
+
+            // Target colors at modest brightness for the transition end
+            const CRGB targetRed = CRGB(180, 0, 0);
+            const CRGB targetViolet = CRGB(100, 0, 180);
+
+            for (uint16_t i = 0; i < NUM_LEDS0; ++i)
+                leds0[i] = blend(snapshot0[i], targetRed, blendAmount);
+            for (uint16_t i = 0; i < NUM_LEDS1; ++i)
+                leds1[i] = blend(snapshot1[i], targetViolet, blendAmount);
+
+            FastLED.show();
+            delay(20);
+        }
+
+        // --- Main heartbeat loop ---
         const uint32_t start = millis();
         while (millis() - start < kGlobalHeartDurationMs)
         {
@@ -1183,6 +1501,11 @@ void BreathingEyes()
     FastLED.show();
 }
 
+void TriggerJackpotCelebration()
+{
+    g_jackpotCelebrationRequested = true;
+}
+
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
@@ -1222,6 +1545,10 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
             lastSparkleUpdate = now;
         }
 
+        UpdateMoonPhases();
+        UpdateAppleGlow();
+        UpdateBrideAnimation();
+        UpdateMeteorShower();
         RunStreetMode(currentStreetMode);
         RunShuttleMode(currentMode, now - lastModeChange);
         BreathingEyes();
@@ -1253,9 +1580,27 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
 void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 {
     ResetJackpotRuntime(JackpotMode::Classic, millis());
+    uint32_t lastAutoJackpot = millis();
     for (;;)
     {
-        if (!g_globalHeartActive && !g_showcaseActive)
+        if (g_jackpotCelebrationRequested)
+        {
+            g_jackpotCelebrationRequested = false;
+            RunJackpotCelebration();
+            ResetJackpotRuntime(JackpotMode::Classic, millis());
+            lastAutoJackpot = millis();
+        }
+
+        // Auto jackpot celebration every 10 minutes
+        const uint32_t now = millis();
+        if (now - lastAutoJackpot >= kAutoJackpotIntervalMs)
+        {
+            lastAutoJackpot = now;
+            RunJackpotCelebration();
+            ResetJackpotRuntime(JackpotMode::Classic, millis());
+        }
+
+        if (!g_globalHeartActive && !g_showcaseActive && !g_jackpotCelebrationActive)
         {
             UpdateJackpotAnimations();
         }
@@ -1267,7 +1612,7 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 // the machine logo
 void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 {
-    MachineMode currentActiveMode = MachineMode::Rainbow;
+    MachineMode currentActiveMode = MachineMode::Showcase;
     MachineMode currentMode = currentActiveMode;
     uint32_t lastModeChange = millis();
 
@@ -1280,7 +1625,9 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
         }
 
         const uint32_t now = millis();
-        if (now - lastModeChange >= kMachineModeDurationMs)
+        const uint32_t modeDuration = (currentMode == MachineMode::Idle)
+            ? kMachineIdleDurationMs : kMachineActiveDurationMs;
+        if (now - lastModeChange >= modeDuration)
         {
             lastModeChange = now;
             if (currentMode == MachineMode::Idle)

@@ -24,6 +24,7 @@ class ApiWebServer
     {
         _server.on("/setled",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->setLed(pRequest); });
         _server.on("/setbrightness",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->setBrightness(pRequest); });
+        _server.on("/jackpot",        HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->triggerJackpot(pRequest); });
 
         _server.begin();
         debugI("HTTP server started");
@@ -73,6 +74,15 @@ class ApiWebServer
         AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);      
+    }
+
+    void triggerJackpot(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Jackpot celebration triggered via API");
+        TriggerJackpotCelebration();
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
     }
 
 };

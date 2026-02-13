@@ -11,6 +11,7 @@ void TheBride(CRGB color);
 void SingleLed(int index, CRGB color);
 void Eyes(CRGB color);
 void BreathingEyes();
+void TriggerJackpotCelebration();
 void FlickerSpotlight(uint8_t index, const CRGB & color);
 void FlickerSpotlights(uint8_t indexA, uint8_t indexB, const CRGB & color);
 

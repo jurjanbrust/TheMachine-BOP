@@ -116,25 +116,10 @@ void setup() {
     FastLED.setBrightness(startupBrightness);
     debugI("Startup brightness set to %u", startupBrightness);
 
-    TheMachineLogo(CRGB::White);
-    TheBride(CRGB::White);
-    Eyes(CRGB::BlueViolet);
-
-    SingleLed(fingersLeftCorner, CRGB::White);
-    SingleLed(moonTopLeft, CRGB::White);
-    SingleLed(moonTopLeft+1, CRGB::White);
-    SingleLed(moonTopLeft+2, CRGB::White);
-    SingleLed(bigBluePlanetLeftSide, CRGB::White);
-    SingleLed(bigBluePlanetRightSide, CRGB::White);
-    SingleLed(jupiterUpper, CRGB::White);
-    SingleLed(jupiterLower, CRGB::White);
-    SingleLed(fronthead, CRGB::Red);
-    SingleLed(people, CRGB::White);
-    SingleLed(carright1, CRGB::White);
-    SingleLed(carright2, CRGB::White);
-    SingleLed(carleft1, CRGB::White);
-    SingleLed(carleft2, CRGB::White);
-    SingleLed(apple, CRGB::White);
+    // Start dark — Showcase mode will handle the theatrical reveal
+    fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+    fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+    FastLED.show();
 
     xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "Shuttle", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
     xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Heart", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
