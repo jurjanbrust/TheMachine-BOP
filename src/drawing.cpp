@@ -40,6 +40,13 @@ namespace
     constexpr uint32_t kStreetModeDurationMs       = 12000;
     constexpr uint32_t kStreetRunnerIntervalMs     = 120;
     constexpr uint8_t  kStreetSparkleDecay         = 210;
+    constexpr uint32_t kCarBlinkIntervalMs         = 800;
+    constexpr uint8_t  kEyeBreathBpm              = 10;
+    constexpr uint32_t kShuttleLaunchRampMs        = 5000;
+    constexpr uint32_t kShuttleLaunchHoldMs        = 1500;
+    constexpr uint32_t kShuttleLaunchFadeMs        = 2000;
+    constexpr uint32_t kShuttleLaunchPauseMs       = 3000;
+    constexpr uint32_t kShuttleLaunchTotalMs       = kShuttleLaunchRampMs + kShuttleLaunchHoldMs + kShuttleLaunchFadeMs + kShuttleLaunchPauseMs;
     constexpr uint32_t kShowcaseDimDurationMs      = 2500;
     constexpr uint32_t kShowcaseRampDurationMs     = 2000;
     constexpr uint32_t kShowcaseHoldDurationMs     = 1000;
@@ -112,6 +119,37 @@ namespace
         }
     }
 
+    void RenderCarHeadlights()
+    {
+        // Alternating left/right pairs like passing traffic
+        const uint8_t phase = (millis() / kCarBlinkIntervalMs) % 2;
+        // Warm yellow headlight color
+        const CRGB headlight = CRGB(255, 200, 60);
+        const CRGB dim       = CRGB(40, 30, 8);
+
+        if (phase == 0)
+        {
+            // Left pair on, right pair dim
+            leds1[carleft1]   = headlight;
+            leds1[carleft2]   = headlight;
+            leds1[carright1]  = dim;
+            leds1[carright2]  = dim;
+        }
+        else
+        {
+            // Right pair on, left pair dim
+            leds1[carright1]  = headlight;
+            leds1[carright2]  = headlight;
+            leds1[carleft1]   = dim;
+            leds1[carleft2]   = dim;
+        }
+        // People LED pulses gently alongside
+        const uint8_t peopleBrightness = beatsin8(12, 80, 200);
+        CRGB peopleColor = CRGB::White;
+        peopleColor.nscale8_video(peopleBrightness);
+        leds1[people] = peopleColor;
+    }
+
     void RenderStreetSparkle()
     {
         for (uint8_t i = 0; i < kStreetLedCount; ++i)
@@ -154,6 +192,7 @@ namespace
         Flicker = 0,
         Wave,
         Boost,
+        Launch,
         Count
     };
 
@@ -162,6 +201,7 @@ namespace
         Pulse = 0,
         Runner,
         Sparkle,
+        CarHeadlights,
         Count
     };
 
@@ -877,7 +917,64 @@ namespace
         delay(30);
     }
 
-    void RunShuttleMode(ShuttleMode mode)
+    void RenderShuttleLaunch(uint32_t modeElapsed)
+    {
+        CRGB * segment = GetShuttleSegment();
+
+        if (modeElapsed < kShuttleLaunchRampMs)
+        {
+            // Ignition ramp: dim red → orange → white-hot
+            const uint8_t progress = static_cast<uint8_t>(
+                min(255UL, (modeElapsed * 255UL) / kShuttleLaunchRampMs));
+
+            // Hue shifts from deep red (0) to orange (28) to yellow-white
+            const uint8_t hue = lerp8by8(0, 28, progress);
+            // Saturation drops from full color to near-white at peak
+            const uint8_t sat = lerp8by8(255, 80, progress);
+            // Brightness ramps up
+            const uint8_t val = lerp8by8(40, 255, progress);
+
+            for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+            {
+                // Slight per-LED variation for organic feel
+                segment[i] = CHSV(hue + random8(4), sat, val - random8(15));
+            }
+        }
+        else if (modeElapsed < kShuttleLaunchRampMs + kShuttleLaunchHoldMs)
+        {
+            // Peak white-hot hold with slight flicker
+            for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+            {
+                const uint8_t flicker = random8(230, 255);
+                segment[i] = CRGB(flicker, flicker, lerp8by8(200, flicker, random8()));
+            }
+        }
+        else if (modeElapsed < kShuttleLaunchRampMs + kShuttleLaunchHoldMs + kShuttleLaunchFadeMs)
+        {
+            // Fade out — shuttle "flies away"
+            const uint32_t fadeElapsed = modeElapsed - kShuttleLaunchRampMs - kShuttleLaunchHoldMs;
+            const uint8_t fadeProgress = static_cast<uint8_t>(
+                min(255UL, (fadeElapsed * 255UL) / kShuttleLaunchFadeMs));
+            const uint8_t brightness = lerp8by8(255, 0, fadeProgress);
+
+            for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+            {
+                CRGB color = CRGB(255, 180, 80);
+                color.nscale8_video(brightness);
+                segment[i] = color;
+            }
+        }
+        else
+        {
+            // Dark pause before next cycle
+            fill_solid(segment, kShuttleLedCount, CRGB::Black);
+        }
+
+        FastLED.show();
+        delay(30);
+    }
+
+    void RunShuttleMode(ShuttleMode mode, uint32_t modeElapsed = 0)
     {
         switch (mode)
         {
@@ -889,6 +986,9 @@ namespace
                 break;
             case ShuttleMode::Boost:
                 RenderShuttleBoost();
+                break;
+            case ShuttleMode::Launch:
+                RenderShuttleLaunch(modeElapsed);
                 break;
             default:
                 break;
@@ -913,6 +1013,9 @@ namespace
                 break;
             case StreetMode::Sparkle:
                 RenderStreetSparkle();
+                break;
+            case StreetMode::CarHeadlights:
+                RenderCarHeadlights();
                 break;
             default:
                 break;
@@ -1065,6 +1168,21 @@ void Eyes(CRGB color = CRGB(246,200,160))
     FastLED.show();
 }
 
+void BreathingEyes()
+{
+    // Slow breathing: brightness oscillates between dim and full
+    const uint8_t breath = beatsin8(kEyeBreathBpm, 40, 255);
+    // Subtle hue shift: violet (192) ↔ blue-violet (210)
+    const uint8_t hue = lerp8by8(192, 210, beatsin8(6, 0, 255));
+    CRGB color = CHSV(hue, 200, breath);
+
+    leds0[NUM_LEDS0 -2] = color;
+    leds0[NUM_LEDS0 -3] = color;
+    leds0[NUM_LEDS0 -4] = color;
+    leds0[NUM_LEDS0 -5] = color;
+    FastLED.show();
+}
+
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
@@ -1083,7 +1201,10 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         }
 
         const uint32_t now = millis();
-        if (now - lastModeChange >= kShuttleModeDurationMs)
+        const uint32_t shuttleModeElapsed = now - lastModeChange;
+        const uint32_t shuttleDuration = (currentMode == ShuttleMode::Launch)
+            ? kShuttleLaunchTotalMs : kShuttleModeDurationMs;
+        if (shuttleModeElapsed >= shuttleDuration)
         {
             currentMode = NextShuttleMode(currentMode);
             lastModeChange = now;
@@ -1102,7 +1223,8 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         }
 
         RunStreetMode(currentStreetMode);
-        RunShuttleMode(currentMode);
+        RunShuttleMode(currentMode, now - lastModeChange);
+        BreathingEyes();
         PostDrawHandler();
     }
 }

@@ -99,15 +99,16 @@ The jackpot ring (48 LEDs on strip 0) cycles through animation modes. Most modes
 
 ### Shuttle Flame Modes (`ShuttleMode`)
 
-Three LEDs (indices 55–57) simulate the shuttle's engine exhaust. Each mode runs for 15 seconds.
+Three LEDs (indices 55–57) simulate the shuttle's engine exhaust. Each mode runs for 15 seconds, except Launch which runs for ~11.5 seconds.
 
 | Mode | Description |
 |---|---|
 | **Flicker** | Randomized warm-orange flame flicker (hue 10–18, high saturation, random brightness 160–255) |
 | **Wave** | Smooth sinusoidal color wave with warm orange tones flowing across the 3 LEDs |
 | **Boost** | Pulsing blend from white to orange simulating engine boost (18 BPM) |
+| **Launch** | Simulated launch sequence: 5-second ignition ramp from dim red through orange to white-hot, 1.5-second peak hold with flicker, 2-second fade-out as shuttle "flies away", then 3-second dark pause before repeating |
 
-**Rotation order:** Flicker → Wave → Boost → (repeat)
+**Rotation order:** Flicker → Wave → Boost → Launch → (repeat)
 
 ---
 
@@ -120,8 +121,9 @@ The 5 street LEDs (people + 4 cars) cycle through modes every 12 seconds.
 | **Pulse** | All 5 street LEDs pulse white in unison (24 BPM sine wave) |
 | **Runner** | *(Defined in enum but no dedicated render function — falls through to default)* |
 | **Sparkle** | Random colorful sparkle bursts with per-LED fade decay on the street elements |
+| **CarHeadlights** | Cars alternate left/right pairs in warm yellow (255,200,60) like passing traffic, with the opposite pair dimmed. People LED breathes gently alongside |
 
-**Rotation order:** Pulse → Runner → Sparkle → (repeat)
+**Rotation order:** Pulse → Runner → Sparkle → CarHeadlights → (repeat)
 
 ---
 
@@ -152,7 +154,7 @@ The single heart LED (last LED on strip 0) beats Red continuously using the hear
 
 ### Eyes
 
-Four LEDs near the end of strip 0 — default color BlueViolet, set once at startup.
+Four LEDs near the end of strip 0 — initialized to BlueViolet at startup, then continuously animated with a breathing effect: brightness oscillates slowly at 10 BPM between dim (40) and full (255), with a subtle hue shift between violet and blue-violet at 6 BPM. Driven by `BreathingEyes()` called from the shuttle task loop (DrawLoopTaskEntryOne).
 
 ---
 
