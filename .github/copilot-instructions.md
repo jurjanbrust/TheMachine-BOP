@@ -206,6 +206,22 @@ Four LEDs near the end of strip 0 — initialized to BlueViolet at startup, then
 
 ---
 
+### Awakening Mode
+
+Triggered via HTTP API (`/awakening`) or automatically every **30 minutes** (`kAutoAwakeningIntervalMs = 1800000`). A 1-minute theatrical sequence where the bride comes alive. All other animations pause during this event (checked via `g_awakeningActive` flag). All LEDs start dark, then elements light up in stages:
+
+| Time | Phase | Description |
+|---|---|---|
+| 0–10s | **Eyes Open** | Four eye LEDs slowly fade from black to BlueViolet, like the bride waking up |
+| 10–20s | **Heart Starts** | Eyes hold steady at full BlueViolet. Heart LED starts with faint beats that grow stronger over 10 seconds |
+| 20–30s | **Moon & Bride** | Moon fades in (crescent → full). Bride outline begins dim aurora. Fronthead accent pulses |
+| 30–40s | **Planets & Apple** | All 5 planet LEDs fade to base colors. Apple begins green↔red glow. Finger accent appears |
+| 40–50s | **Logo, Shuttle, Jackpot** | Machine logo ramps warm white. Shuttle flames flicker to life. Jackpot segments fill outward from center in warm orange/red |
+| 50–58s | **Street & Spotlights** | Street and car headlights fade in. Spotlights flicker on with fluorescent tube effect for the full 8 seconds (50–58s), probability of being on increases over time, then lock solid |
+| 58–60s | **Hold & Release** | All elements hold at full brightness, then normal animation resumes |
+
+---
+
 ## Static Startup State
 
 On boot, both strips start fully dark (black). The Machine logo task begins in **Showcase** mode, which runs the 10-second fluorescent tube flicker sequence as the theatrical power-on reveal. After the flicker completes, the spotlights lock on and the logo and planets ramp up. Once Showcase finishes, the normal mode rotation continues (Idle → Rainbow → ...).
@@ -219,6 +235,7 @@ On boot, both strips start fully dark (black). The Machine logo task begins in *
 | `/setled` | GET | `index` (0–120) | Clears strip 1, then sets the specified LED to white |
 | `/setbrightness` | GET | `value` (0–255) | Sets global brightness and persists to NVS flash |
 | `/jackpot` | GET | *(none)* | Triggers a 5-second jackpot win celebration on the jackpot ring |
+| `/awakening` | GET | *(none)* | Triggers the 1-minute Awakening sequence — bride comes alive |
 
 ---
 

@@ -63,6 +63,8 @@ namespace
     constexpr uint8_t  kBrideLedCount               = 33;
     constexpr uint32_t kJackpotCelebrationDurationMs = 5000;
     constexpr uint32_t kSpotlightWashCycleMs        = 10000;
+    constexpr uint32_t kAwakeningDurationMs          = 60000; // 1 minute total
+    constexpr uint32_t kAutoAwakeningIntervalMs       = 1800000; // 30 minutes
 
     constexpr uint8_t kPlanetIndices[kPlanetCount] = {
         moonTopLeft,
@@ -101,6 +103,8 @@ namespace
     bool g_showcaseActive = false;
     volatile bool g_jackpotCelebrationRequested = false;
     bool g_jackpotCelebrationActive = false;
+    volatile bool g_awakeningRequested = false;
+    bool g_awakeningActive = false;
     const CRGB kSpotlightColor = CRGB::White;
 
     // Meteor shower state
@@ -834,6 +838,232 @@ namespace
         g_globalHeartActive = false;
     }
 
+    // ==================== Awakening Mode ====================
+    // A 1-minute theatrical sequence: the bride comes alive.
+    //
+    // Timeline:
+    //   0–10s : Eyes slowly open (fade from black to BlueViolet)
+    //  10–20s : Heart LED starts beating, faint → strong
+    //  20–30s : Moon fades in, bride outline starts dim aurora
+    //  30–40s : Planets fade to base colors, apple glows, fronthead accent
+    //  40–50s : Machine logo ramps warm white, shuttle flickers, jackpot warms up
+    //  50–58s : Street scene lights up, spotlights flicker on
+    //  58–60s : Hold at full, then release to normal animations
+
+    void RunAwakeningMode()
+    {
+        g_awakeningActive = true;
+
+        // Black out everything
+        fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+        fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+        FastLED.show();
+        delay(500); // Brief dramatic pause in total darkness
+
+        const uint32_t startMs = millis();
+
+        while (millis() - startMs < kAwakeningDurationMs)
+        {
+            const uint32_t elapsed = millis() - startMs;
+
+            // Keep everything black as a base each frame, then paint active elements
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            // ---- Phase 1 (0–10s): Eyes slowly open ----
+            {
+                // Ramp brightness 0 → 255 over 10 seconds, then hold steady
+                const uint8_t eyeBright = (elapsed < 10000)
+                    ? static_cast<uint8_t>((elapsed * 255UL) / 10000)
+                    : 255;
+                CRGB eyeColor = CHSV(200, 200, eyeBright);
+                leds0[NUM_LEDS0 - 2] = eyeColor;
+                leds0[NUM_LEDS0 - 3] = eyeColor;
+                leds0[NUM_LEDS0 - 4] = eyeColor;
+                leds0[NUM_LEDS0 - 5] = eyeColor;
+            }
+
+            // ---- Phase 2 (10–20s): Heart starts beating, growing stronger ----
+            if (elapsed >= 10000)
+            {
+                uint8_t heartMax;
+                if (elapsed < 20000)
+                {
+                    // Ramp max heartbeat amplitude from 30 → 255 over 10s
+                    heartMax = static_cast<uint8_t>(30 + ((elapsed - 10000) * 225UL) / 10000);
+                }
+                else
+                {
+                    heartMax = 255;
+                }
+                const uint8_t hbRaw = GetHeartbeatBrightness();
+                const uint8_t heartBright = scale8(hbRaw, heartMax);
+                CRGB heartColor = CRGB::Red;
+                heartColor.nscale8_video(heartBright);
+                leds0[NUM_LEDS0 - 1] = heartColor;
+            }
+
+            // ---- Phase 3 (20–30s): Moon fades in + bride outline aurora ----
+            if (elapsed >= 20000)
+            {
+                uint8_t phaseBlend;
+                if (elapsed < 30000)
+                    phaseBlend = static_cast<uint8_t>(((elapsed - 20000) * 255UL) / 10000);
+                else
+                    phaseBlend = 255;
+
+                // Moon: fade in as crescent first (1 LED), expanding
+                const uint8_t moonLit = (phaseBlend < 85) ? 1 : (phaseBlend < 170) ? 2 : 3;
+                const CRGB moonColor = CRGB(
+                    scale8(255, phaseBlend),
+                    scale8(220, phaseBlend),
+                    scale8(180, phaseBlend));
+                for (uint8_t i = 0; i < moonLit; ++i)
+                    leds1[moonTopLeft + i] = moonColor;
+
+                // Bride aurora at scaled intensity
+                const uint32_t now = millis();
+                for (uint8_t i = 0; i < kBrideLedCount; ++i)
+                {
+                    const uint8_t waveA = sin8((now / 23) + i * 19);
+                    const uint8_t waveB = sin8((now / 37) + i * 31);
+                    const uint8_t combined = qadd8(waveA, waveB) / 2;
+                    const uint8_t hue = 80 + (waveA / 4) + (waveB / 8);
+                    const uint8_t sat = qadd8(180, waveB / 4);
+                    const uint8_t val = scale8(scale8(combined, 200), phaseBlend);
+                    leds1[kBrideIndices[i]] = CHSV(hue, sat, val);
+                }
+
+                // Fronthead accent fading in (purple)
+                CRGB accent = CRGB::Purple;
+                accent.nscale8_video(scale8(beatsin8(30, 40, 220), phaseBlend));
+                leds1[fronthead] = accent;
+            }
+
+            // ---- Phase 4 (30–40s): Planets + apple awaken ----
+            if (elapsed >= 30000)
+            {
+                uint8_t phaseBlend;
+                if (elapsed < 40000)
+                    phaseBlend = static_cast<uint8_t>(((elapsed - 30000) * 255UL) / 10000);
+                else
+                    phaseBlend = 255;
+
+                // Planets fade in to their base colors
+                for (uint8_t i = 0; i < kPlanetCount; ++i)
+                {
+                    CRGB pColor = kPlanetBaseColors[i];
+                    pColor.nscale8_video(phaseBlend);
+                    leds1[kPlanetIndices[i]] = pColor;
+                }
+
+                // Apple: blend green↔red pulse, scaled by fade-in
+                const uint8_t appleBlend = beatsin8(kAppleGlowBpm, 0, 255);
+                CRGB appleColor = CRGB(appleBlend, 255 - appleBlend, 0);
+                appleColor.nscale8_video(phaseBlend);
+                leds1[apple] = appleColor;
+
+                // Fingers accent
+                CRGB fingerColor = CRGB(246, 200, 160);
+                fingerColor.nscale8_video(phaseBlend);
+                leds1[fingersLeftCorner] = fingerColor;
+            }
+
+            // ---- Phase 5 (40–50s): Machine logo + shuttle + jackpot ----
+            if (elapsed >= 40000)
+            {
+                uint8_t phaseBlend;
+                if (elapsed < 50000)
+                    phaseBlend = static_cast<uint8_t>(((elapsed - 40000) * 255UL) / 10000);
+                else
+                    phaseBlend = 255;
+
+                // Machine logo: warm white ramp
+                CRGB logoColor = CRGB(246, 200, 160);
+                logoColor.nscale8_video(phaseBlend);
+                for (uint8_t i = 0; i < kMachineLedCount; ++i)
+                    leds1[theMachineFirstLed + i] = logoColor;
+
+                // Shuttle: flickering flame fading in
+                for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+                {
+                    CRGB flame = CHSV(10 + random8(8), 220, random8(160, 255));
+                    flame.nscale8_video(phaseBlend);
+                    leds1[kShuttleFirstLed + i] = flame;
+                }
+
+                // Jackpot: warm amber sweeping in from center outward
+                const uint8_t segmentsLit = 1 + (phaseBlend * 7) / 255;
+                const uint8_t segBright = scale8(180, phaseBlend);
+                for (uint8_t seg = 0; seg < segmentsLit; ++seg)
+                {
+                    // Light from center outward: segments 3,4 first, then 2,5, then 1,6, then 0,7
+                    const uint8_t fromCenter = seg;
+                    const uint8_t segA = 3 - min((uint8_t)3, fromCenter);
+                    const uint8_t segB = 4 + min((uint8_t)3, fromCenter);
+
+                    CRGB jColor = (seg % 2 == 0) ? CRGB::DarkOrange : CRGB::Red;
+                    jColor.nscale8_video(segBright);
+
+                    for (uint8_t led = 0; led < kJackpotLedsPerSegment; ++led)
+                    {
+                        leds0[segA * kJackpotLedsPerSegment + led] = jColor;
+                        leds0[segB * kJackpotLedsPerSegment + led] = jColor;
+                    }
+                }
+            }
+
+            // ---- Phase 6 (50–58s): Street scene + spotlights ----
+            if (elapsed >= 50000)
+            {
+                uint8_t phaseBlend;
+                if (elapsed < 58000)
+                    phaseBlend = static_cast<uint8_t>(((elapsed - 50000) * 255UL) / 8000);
+                else
+                    phaseBlend = 255;
+
+                // Street LEDs fade in
+                CRGB streetColor = CRGB::White;
+                streetColor.nscale8_video(phaseBlend);
+                for (uint8_t i = 0; i < kStreetLedCount; ++i)
+                    leds1[kStreetIndices[i]] = streetColor;
+
+                // Car headlights warm up
+                CRGB headlight = CRGB(255, 200, 60);
+                headlight.nscale8_video(phaseBlend);
+                leds1[carright1] = headlight;
+                leds1[carright2] = headlight;
+                leds1[carleft1]  = headlight;
+                leds1[carleft2]  = headlight;
+
+                // Spotlights: fluorescent tube flicker for 8 seconds (50–58s)
+                if (elapsed < 58000)
+                {
+                    // Probability of being on increases over the 8s window
+                    const uint8_t flickerProgress = static_cast<uint8_t>(
+                        ((elapsed - 50000) * 255UL) / 8000);
+                    const uint8_t onChance = lerp8by8(80, 220, flickerProgress);
+                    const bool on = (random8() < onChance);
+                    CRGB spotColor = on ? CRGB::White : CRGB::Black;
+                    leds1[spotlights1] = spotColor;
+                    leds1[spotlights2] = spotColor;
+                }
+                else
+                {
+                    leds1[spotlights1] = CRGB::White;
+                    leds1[spotlights2] = CRGB::White;
+                }
+            }
+
+            FastLED.show();
+            delay(25);
+        }
+
+        // Brief hold at full brightness
+        delay(100);
+        g_awakeningActive = false;
+    }
+
     CRGB DimJackpotColor(CRGB color)
     {
         color.nscale8_video(kJackpotDimScale);
@@ -1506,6 +1736,11 @@ void TriggerJackpotCelebration()
     g_jackpotCelebrationRequested = true;
 }
 
+void TriggerAwakening()
+{
+    g_awakeningRequested = true;
+}
+
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
@@ -1517,7 +1752,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 
     for (;;)
     {
-        if (g_globalHeartActive || g_showcaseActive)
+        if (g_globalHeartActive || g_showcaseActive || g_awakeningActive)
         {
             PostDrawHandler();
             continue;
@@ -1559,15 +1794,35 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 // heart
 void IRAM_ATTR DrawLoopTaskEntryTwo(void *) 
 {
+    uint32_t lastAutoAwakening = millis();
     for (;;)
     {
-        if (!g_showcaseActive)
+        // Check for awakening trigger (API or auto)
+        if (g_awakeningRequested)
+        {
+            g_awakeningRequested = false;
+            RunAwakeningMode();
+            lastAutoAwakening = millis();
+        }
+
+        // Auto-awakening every 30 minutes
+        const uint32_t now = millis();
+        if (now - lastAutoAwakening >= kAutoAwakeningIntervalMs)
+        {
+            lastAutoAwakening = now;
+            if (!g_showcaseActive)
+            {
+                RunAwakeningMode();
+            }
+        }
+
+        if (!g_showcaseActive && !g_awakeningActive)
         {
             Heartbeat(0);
         }
         EVERY_N_SECONDS(kGlobalHeartIntervalSeconds)
         {
-            if (!g_showcaseActive)
+            if (!g_showcaseActive && !g_awakeningActive)
             {
                 RunGlobalHeartMode();
             }
@@ -1600,7 +1855,7 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
             ResetJackpotRuntime(JackpotMode::Classic, millis());
         }
 
-        if (!g_globalHeartActive && !g_showcaseActive && !g_jackpotCelebrationActive)
+        if (!g_globalHeartActive && !g_showcaseActive && !g_jackpotCelebrationActive && !g_awakeningActive)
         {
             UpdateJackpotAnimations();
         }
@@ -1618,7 +1873,7 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 
     for (;;)
     {
-        if (g_globalHeartActive)
+        if (g_globalHeartActive || g_awakeningActive)
         {
             PostDrawHandler();
             continue;
