@@ -43,6 +43,7 @@ namespace
     constexpr uint32_t kShowcaseDimDurationMs      = 2500;
     constexpr uint32_t kShowcaseRampDurationMs     = 2000;
     constexpr uint32_t kShowcaseHoldDurationMs     = 1000;
+    constexpr uint32_t kShowcaseFlickerDurationMs  = 10000;
 
     constexpr uint8_t kPlanetIndices[kPlanetCount] = {
         moonTopLeft,
@@ -73,6 +74,7 @@ namespace
     uint32_t g_frontheadPulseStart = 0;
     CRGB g_streetSparkleLayer[kStreetLedCount] = {};
     bool g_globalHeartActive = false;
+    bool g_showcaseActive = false;
     const CRGB kSpotlightColor = CRGB::White;
 
 
@@ -277,6 +279,7 @@ namespace
     void ResetShowcaseState()
     {
         g_showcaseState = ShowcaseState{};
+        g_showcaseActive = false;
     }
 
     uint8_t ShowcaseIntensity(uint32_t elapsed)
@@ -294,6 +297,12 @@ namespace
             g_showcaseState.initialized = true;
             g_showcaseState.stage = 0;
             g_showcaseState.stageStart = now;
+            g_showcaseActive = true;
+
+            // Black out everything at the start
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+            FastLED.show();
         }
 
         auto advanceStage = [&](uint8_t nextStage) {
@@ -303,82 +312,78 @@ namespace
 
         switch (g_showcaseState.stage)
         {
-            case 0:
-            {
-                g_planetHighlightActive = false;
-                FlickerSpotlights(spotlights1, spotlights2, kSpotlightColor);
-                SetSpotlights(kSpotlightColor);
-                FastLED.show();
-                advanceStage(1);
-                break;
-            }
-            case 1:
-            {
-                g_planetHighlightActive = false;
-                fadeToBlackBy(leds0, NUM_LEDS0, 20);
-                fadeToBlackBy(leds1, NUM_LEDS1, 20);
-                SetSpotlights(kSpotlightColor);
-                FastLED.show();
-                if (now - g_showcaseState.stageStart >= kShowcaseDimDurationMs)
-                {
-                    advanceStage(2);
-                }
-                break;
-            }
-            case 2:
+            case 0: // Fluorescent tube flicker for 10 seconds, everything else dark
             {
                 g_planetHighlightActive = false;
                 const uint32_t elapsed = now - g_showcaseState.stageStart;
-                CRGB machineColor = CRGB(246, 200, 160);
-                machineColor.nscale8_video(ShowcaseIntensity(elapsed));
-                FillMachineRange(machineColor);
-                SetSpotlights(kSpotlightColor);
+
+                // Keep everything black except the spotlights
+                fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+                fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+                // Fluorescent tube simulation: on-probability ramps up over time
+                const uint8_t progress = static_cast<uint8_t>(
+                    min(255UL, (elapsed * 255UL) / kShowcaseFlickerDurationMs));
+                const uint8_t onChance = lerp8by8(40, 255, progress);
+                // Occasional dark bursts early on
+                const bool burstOff = (random8() < 20) && (progress < 200);
+                const bool isOn = (random8() < onChance) && !burstOff;
+
+                const CRGB spotColor = isOn ? kSpotlightColor : CRGB::Black;
+                leds1[spotlights1] = spotColor;
+                leds1[spotlights2] = spotColor;
                 FastLED.show();
-                if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
+                delay(random8(30, 120));
+
+                if (elapsed >= kShowcaseFlickerDurationMs)
                 {
-                    advanceStage(3);
+                    advanceStage(1);
                 }
                 break;
             }
-            case 3:
+            case 1: // Spotlights on solid, ramp up logo and planets
             {
-                if (!g_planetHighlightActive)
-                    g_frontheadPulseStart = now;
-                g_planetHighlightActive = true;
                 const uint32_t elapsed = now - g_showcaseState.stageStart;
                 const uint8_t intensity = ShowcaseIntensity(elapsed);
+
+                // Spotlights stay on permanently
+                SetSpotlights(kSpotlightColor);
+
+                // Ramp up The Machine logo
+                CRGB machineColor = CRGB(246, 200, 160);
+                machineColor.nscale8_video(intensity);
+                FillMachineRange(machineColor);
+
+                // Ramp up planets in their base colors
                 for (uint8_t i = 0; i < kPlanetCount; ++i)
                 {
                     CRGB color = kPlanetBaseColors[i];
                     color.nscale8_video(intensity);
                     leds1[kPlanetIndices[i]] = color;
                 }
-                SetSpotlights(kSpotlightColor);
-                UpdateFrontheadAccent();
+
                 FastLED.show();
+
                 if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
                 {
-                    advanceStage(4);
+                    g_showcaseActive = false;
+                    advanceStage(2);
                 }
                 break;
             }
-            case 4:
+            case 2: // Hold — spotlights, logo, and planets stay lit
             {
-                g_planetHighlightActive = false;
-                const uint32_t elapsed = now - g_showcaseState.stageStart;
-                CRGB foreheadColor = CRGB::White;
-                foreheadColor.nscale8_video(ShowcaseIntensity(elapsed));
-                leds1[fronthead] = foreheadColor;
                 SetSpotlights(kSpotlightColor);
-                FastLED.show();
-                if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
+                FillMachineRange(CRGB(246, 200, 160));
+                for (uint8_t i = 0; i < kPlanetCount; ++i)
                 {
-                    advanceStage(0);
+                    leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
                 }
+                FastLED.show();
                 break;
             }
             default:
-                g_planetHighlightActive = false;
+                g_showcaseActive = false;
                 advanceStage(0);
                 break;
         }
@@ -1071,7 +1076,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 
     for (;;)
     {
-        if (g_globalHeartActive)
+        if (g_globalHeartActive || g_showcaseActive)
         {
             PostDrawHandler();
             continue;
@@ -1107,10 +1112,16 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
 {
     for (;;)
     {
-        Heartbeat(0);
+        if (!g_showcaseActive)
+        {
+            Heartbeat(0);
+        }
         EVERY_N_SECONDS(kGlobalHeartIntervalSeconds)
         {
-            RunGlobalHeartMode();
+            if (!g_showcaseActive)
+            {
+                RunGlobalHeartMode();
+            }
         }
         PostDrawHandler();
     }
@@ -1122,7 +1133,7 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
     ResetJackpotRuntime(JackpotMode::Classic, millis());
     for (;;)
     {
-        if (!g_globalHeartActive)
+        if (!g_globalHeartActive && !g_showcaseActive)
         {
             UpdateJackpotAnimations();
         }
