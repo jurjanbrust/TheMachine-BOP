@@ -105,6 +105,7 @@ namespace
     bool g_jackpotCelebrationActive = false;
     volatile bool g_awakeningRequested = false;
     bool g_awakeningActive = false;
+    volatile bool g_allStopped = false;
     const CRGB kSpotlightColor = CRGB::White;
 
     // Meteor shower state
@@ -1741,6 +1742,22 @@ void TriggerAwakening()
     g_awakeningRequested = true;
 }
 
+void SetAllStopped(bool stopped)
+{
+    g_allStopped = stopped;
+    if (stopped)
+    {
+        fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+        fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+        FastLED.show();
+        debugI("All animations stopped, LEDs off");
+    }
+    else
+    {
+        debugI("Animations resumed");
+    }
+}
+
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
@@ -1752,7 +1769,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 
     for (;;)
     {
-        if (g_globalHeartActive || g_showcaseActive || g_awakeningActive)
+        if (g_allStopped || g_globalHeartActive || g_showcaseActive || g_awakeningActive)
         {
             PostDrawHandler();
             continue;
@@ -1797,6 +1814,12 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
     uint32_t lastAutoAwakening = millis();
     for (;;)
     {
+        if (g_allStopped)
+        {
+            PostDrawHandler();
+            continue;
+        }
+
         // Check for awakening trigger (API or auto)
         if (g_awakeningRequested)
         {
@@ -1816,13 +1839,13 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
             }
         }
 
-        if (!g_showcaseActive && !g_awakeningActive)
+        if (!g_allStopped && !g_showcaseActive && !g_awakeningActive)
         {
             Heartbeat(0);
         }
         EVERY_N_SECONDS(kGlobalHeartIntervalSeconds)
         {
-            if (!g_showcaseActive && !g_awakeningActive)
+            if (!g_allStopped && !g_showcaseActive && !g_awakeningActive)
             {
                 RunGlobalHeartMode();
             }
@@ -1838,6 +1861,12 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
     uint32_t lastAutoJackpot = millis();
     for (;;)
     {
+        if (g_allStopped)
+        {
+            PostDrawHandler();
+            continue;
+        }
+
         if (g_jackpotCelebrationRequested)
         {
             g_jackpotCelebrationRequested = false;
@@ -1855,7 +1884,7 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
             ResetJackpotRuntime(JackpotMode::Classic, millis());
         }
 
-        if (!g_globalHeartActive && !g_showcaseActive && !g_jackpotCelebrationActive && !g_awakeningActive)
+        if (!g_allStopped && !g_globalHeartActive && !g_showcaseActive && !g_jackpotCelebrationActive && !g_awakeningActive)
         {
             UpdateJackpotAnimations();
         }
@@ -1873,7 +1902,7 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 
     for (;;)
     {
-        if (g_globalHeartActive || g_awakeningActive)
+        if (g_allStopped || g_globalHeartActive || g_awakeningActive)
         {
             PostDrawHandler();
             continue;

@@ -16,6 +16,50 @@ This document describes the hardware layout, LED zones, animation modes, and arc
 
 ---
 
+### Strip 1 Physical LED Layout (121 LEDs)
+
+The LED strip starts at index 0 (top-left corner) and spirals clockwise inward to index 120 (center). Think of it as a rectangular spiral on the backglass:
+
+```
+ OUTER RING (0–51): starts top-left, goes clockwise
+ ┌─── 0 ─── 1 ─── 2 ─── ... ─── 17 ─── 18 ──┐
+ │    top edge →                            │
+ 39                                         19
+ │                                          │
+ 40                                         20
+ │   MIDDLE RING (52–85): also clockwise    │
+ 41   ┌─ 61 ── 62 ── ... ── 77 ── 78 ─┐     21
+ │    │  top edge →                   │     │
+ 42   60                              79    22
+ │    │  INNER RING (99–120):         │     │
+ 43   59  ┌ 105─106─...─119─120 ┐     80    23
+ │    │   │  center block       │     │     │
+ 44   58  104                   │     81    24
+ │    │   │                     │     │     │
+ 45   57  103                   │     82    25
+ │    │   │                     │     │     │
+ 46   56  102                   │     83    26
+ │    │   │                     │     │     │
+ 47   55  101                   │     84    27
+ │    │   │                     │     │     │
+ 48   54  └ 100 ── 99 ──────────┘     85    28
+ │    │    bottom edge ←              │     │
+ 49   53                              │     29
+ │    └── 52 ─────────────────────────┘     │
+ 50                                         30
+ │    ← bottom edge                         │
+ 51                                         31
+ └─── 38 ── 37 ── 36 ── ... ─── 33 ─── 32 ───┘
+```
+
+**Reading guide:**
+- **Outer ring** — indices 0→18 (top, L→R), 19→31 (right, T→B), 32→38 (bottom, R→L), 39→51 (left, T→B)
+- **Middle ring** — indices 52→53 (bottom-left gap), 54→60 (left, B→T), 61→78 (top, L→R), 79→85 (right, T→B)
+- **Inner block** — indices 99→105 (left column, B→T), 106→120 (top→right, filling center)
+- The strip snakes inward; higher indices are closer to the center of the backglass artwork.
+
+---
+
 ## LED Zones & Named Positions (Strip 1)
 
 These are the individually-addressable artwork elements on the backglass:

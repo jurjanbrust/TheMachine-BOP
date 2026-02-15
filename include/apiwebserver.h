@@ -26,6 +26,8 @@ class ApiWebServer
         _server.on("/setbrightness",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->setBrightness(pRequest); });
         _server.on("/jackpot",        HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->triggerJackpot(pRequest); });
         _server.on("/awakening",      HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->triggerAwakening(pRequest); });
+        _server.on("/stop",           HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->stopAll(pRequest); });
+        _server.on("/resume",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->resumeAll(pRequest); });
 
         _server.begin();
         debugI("HTTP server started");
@@ -90,6 +92,24 @@ class ApiWebServer
     {
         debugI("Awakening mode triggered via API");
         TriggerAwakening();
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void stopAll(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Stop all modes triggered via API");
+        SetAllStopped(true);
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void resumeAll(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Resume all modes triggered via API");
+        SetAllStopped(false);
         AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);
