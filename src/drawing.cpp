@@ -106,6 +106,9 @@ namespace
     volatile bool g_awakeningRequested = false;
     bool g_awakeningActive = false;
     volatile bool g_allStopped = false;
+    volatile bool g_sweepRequested = false;
+    volatile uint8_t g_sweepDirection = 0;
+    volatile bool g_sweepOff = false;
     const CRGB kSpotlightColor = CRGB::White;
 
     // Meteor shower state
@@ -119,7 +122,193 @@ namespace
     MeteorShower g_meteorShower;
     CRGB g_meteorTrail[NUM_LEDS1] = {};
 
-    // Bride animation modes
+    // -----------------------------------------------------------------------
+    // Spatial coordinate map for strip 1 (121 LEDs)
+    // Each LED gets an (x, y) position on a 19×15 grid so we can sort LEDs
+    // by column (for L↔R sweeps), row (for T↔B sweeps), or ring depth
+    // (for outer↔inner sweeps).
+    //   x = 0 (left) … 18 (right)
+    //   y = 0 (top)  … 14 (bottom)
+    // -----------------------------------------------------------------------
+    struct LedCoord { uint8_t x; uint8_t y; };
+
+    // Helper to map LED index → grid position (called once per LED at init)
+    LedCoord BuildCoord(uint8_t idx)
+    {
+        // --- Outer ring (0–51) ---
+        if (idx <=  18) return { idx,                       0 };           // top    L→R
+        if (idx <=  31) return { 18, (uint8_t)(idx - 18)       };           // right  T→B
+        if (idx <=  38) return { (uint8_t)(18 - (idx - 32)),  14 };         // bottom R→L
+        if (idx <=  51) return {  0, (uint8_t)(idx - 38)       };           // left   T→B
+
+        // --- Middle ring (52–85) ---
+        if (idx ==  52) return {  2, 12 };                                  // bottom-left connector
+        if (idx ==  53) return {  2, 11 };
+        if (idx <=  60) return {  2, (uint8_t)(10 - (idx - 54)) };          // left  B→T  (54→y10 … 60→y4)
+        if (idx <=  78) return { (uint8_t)(2 + (idx - 61)),  2 };           // top   L→R  (61→x2 … 78→x19 clamped to 16)
+        if (idx <=  85) return { 16, (uint8_t)(3 + (idx - 79)) };           // right T→B  (79→y3 … 85→y9)
+
+        // --- Gap / bridge LEDs 86-98 (not on the diagram — place centrally) ---
+        if (idx <=  98) return { (uint8_t)(4 + (idx - 86)),  8 };           // rough horizontal mid-band
+
+        // --- Inner block (99–120) ---
+        if (idx <= 105) return {  4, (uint8_t)(10 - (idx - 99)) };          // left col B→T (99→y10 … 105→y4)
+        // 106–120: fills center L→R then wraps rows
+        return { (uint8_t)(5 + ((idx - 106) % 5)), (uint8_t)(4 + ((idx - 106) / 5)) };
+    }
+
+    constexpr uint8_t kGridCols = 19;
+    constexpr uint8_t kGridRows = 15;
+
+    // Pre-built coordinate table (ROM)
+    const LedCoord kLedCoords[NUM_LEDS1] = {
+        BuildCoord(0),  BuildCoord(1),  BuildCoord(2),  BuildCoord(3),
+        BuildCoord(4),  BuildCoord(5),  BuildCoord(6),  BuildCoord(7),
+        BuildCoord(8),  BuildCoord(9),  BuildCoord(10), BuildCoord(11),
+        BuildCoord(12), BuildCoord(13), BuildCoord(14), BuildCoord(15),
+        BuildCoord(16), BuildCoord(17), BuildCoord(18), BuildCoord(19),
+        BuildCoord(20), BuildCoord(21), BuildCoord(22), BuildCoord(23),
+        BuildCoord(24), BuildCoord(25), BuildCoord(26), BuildCoord(27),
+        BuildCoord(28), BuildCoord(29), BuildCoord(30), BuildCoord(31),
+        BuildCoord(32), BuildCoord(33), BuildCoord(34), BuildCoord(35),
+        BuildCoord(36), BuildCoord(37), BuildCoord(38), BuildCoord(39),
+        BuildCoord(40), BuildCoord(41), BuildCoord(42), BuildCoord(43),
+        BuildCoord(44), BuildCoord(45), BuildCoord(46), BuildCoord(47),
+        BuildCoord(48), BuildCoord(49), BuildCoord(50), BuildCoord(51),
+        BuildCoord(52), BuildCoord(53), BuildCoord(54), BuildCoord(55),
+        BuildCoord(56), BuildCoord(57), BuildCoord(58), BuildCoord(59),
+        BuildCoord(60), BuildCoord(61), BuildCoord(62), BuildCoord(63),
+        BuildCoord(64), BuildCoord(65), BuildCoord(66), BuildCoord(67),
+        BuildCoord(68), BuildCoord(69), BuildCoord(70), BuildCoord(71),
+        BuildCoord(72), BuildCoord(73), BuildCoord(74), BuildCoord(75),
+        BuildCoord(76), BuildCoord(77), BuildCoord(78), BuildCoord(79),
+        BuildCoord(80), BuildCoord(81), BuildCoord(82), BuildCoord(83),
+        BuildCoord(84), BuildCoord(85), BuildCoord(86), BuildCoord(87),
+        BuildCoord(88), BuildCoord(89), BuildCoord(90), BuildCoord(91),
+        BuildCoord(92), BuildCoord(93), BuildCoord(94), BuildCoord(95),
+        BuildCoord(96), BuildCoord(97), BuildCoord(98), BuildCoord(99),
+        BuildCoord(100),BuildCoord(101),BuildCoord(102),BuildCoord(103),
+        BuildCoord(104),BuildCoord(105),BuildCoord(106),BuildCoord(107),
+        BuildCoord(108),BuildCoord(109),BuildCoord(110),BuildCoord(111),
+        BuildCoord(112),BuildCoord(113),BuildCoord(114),BuildCoord(115),
+        BuildCoord(116),BuildCoord(117),BuildCoord(118),BuildCoord(119),
+        BuildCoord(120)
+    };
+
+    // Ring depth: 0 = outer, 1 = middle, 2 = inner
+    uint8_t LedRingDepth(uint8_t idx)
+    {
+        if (idx <= 51)  return 0;
+        if (idx <= 85)  return 1;
+        return 2;
+    }
+
+    // -----------------------------------------------------------------------
+    // Sweep modes — light up strip 1 in spatial order
+    // -----------------------------------------------------------------------
+    enum class SweepDirection : uint8_t
+    {
+        LeftToRight,
+        RightToLeft,
+        TopToBottom,
+        BottomToTop,
+        OuterToInner,
+        InnerToOuter
+    };
+
+    // Returns a sort-key for the given LED in the requested direction.
+    // Lower keys light up first.
+    int16_t SweepKey(uint8_t idx, SweepDirection dir)
+    {
+        const LedCoord & c = kLedCoords[idx];
+        switch (dir)
+        {
+            case SweepDirection::LeftToRight:  return  c.x;
+            case SweepDirection::RightToLeft:  return  kGridCols - 1 - c.x;
+            case SweepDirection::TopToBottom:   return  c.y;
+            case SweepDirection::BottomToTop:   return  kGridRows - 1 - c.y;
+            case SweepDirection::OuterToInner:  return  LedRingDepth(idx);
+            case SweepDirection::InnerToOuter:  return  2 - LedRingDepth(idx);
+        }
+        return 0;
+    }
+
+    // Build a sorted index list for a given sweep direction.
+    // `out` must have room for NUM_LEDS1 entries.
+    void BuildSweepOrder(uint8_t * out, SweepDirection dir)
+    {
+        for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            out[i] = i;
+
+        // Simple insertion sort (small N = 121, runs once)
+        for (uint8_t i = 1; i < NUM_LEDS1; ++i)
+        {
+            uint8_t val = out[i];
+            int16_t key = SweepKey(val, dir);
+            int16_t j = i - 1;
+            while (j >= 0 && SweepKey(out[j], dir) > key)
+            {
+                out[j + 1] = out[j];
+                --j;
+            }
+            out[j + 1] = val;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // SweepFill — progressively light LEDs in spatial order.
+    // `color`         : target color for each LED
+    // `dir`           : sweep direction
+    // `totalDurationMs`: how long the full sweep takes
+    // `ledsPerStep`   : how many LEDs to light each frame
+    // -----------------------------------------------------------------------
+    void SweepFill(CRGB color, SweepDirection dir,
+                   uint32_t totalDurationMs = 2000, uint8_t ledsPerStep = 4)
+    {
+        uint8_t order[NUM_LEDS1];
+        BuildSweepOrder(order, dir);
+
+        const uint32_t stepDelay = totalDurationMs / ((NUM_LEDS1 + ledsPerStep - 1) / ledsPerStep);
+        uint8_t idx = 0;
+        while (idx < NUM_LEDS1)
+        {
+            for (uint8_t s = 0; s < ledsPerStep && idx < NUM_LEDS1; ++s, ++idx)
+                leds1[order[idx]] = color;
+            FastLED.show();
+            delay(stepDelay);
+        }
+    }
+
+    // SweepOff — turn LEDs off in spatial order
+    void SweepOff(SweepDirection dir,
+                  uint32_t totalDurationMs = 1500, uint8_t ledsPerStep = 4)
+    {
+        SweepFill(CRGB::Black, dir, totalDurationMs, ledsPerStep);
+    }
+
+    // Startup sweep: right-to-left warm white reveal for a pleasant boot look
+    void StartupSweep()
+    {
+        fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+        fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+        FastLED.show();
+
+        // Strip 1: sweep right-to-left with warm white
+        SweepFill(CRGB(246, 200, 160), SweepDirection::RightToLeft, 2000, 3);
+        delay(400);
+
+        // Fade out before handing off to Showcase
+        for (uint8_t fade = 255; fade > 0; fade -= 5)
+        {
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                leds1[i].nscale8_video(fade > 5 ? 245 : 0);
+            FastLED.show();
+            delay(15);
+        }
+        fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+        FastLED.show();
+    }
+
     enum class BrideMode : uint8_t
     {
         Aurora = 0,
@@ -695,12 +884,24 @@ namespace
 
                 if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
                 {
-                    g_showcaseActive = false;
                     advanceStage(2);
                 }
                 break;
             }
-            case 2: // Hold — spotlights wash color, logo, and planets stay lit
+            case 2: // Sweep reveal — warm white right-to-left across the whole backglass
+            {
+                // Keep spotlights, logo and planets lit during the sweep
+                SetSpotlights(kSpotlightColor);
+                FillMachineRange(CRGB(246, 200, 160));
+                for (uint8_t i = 0; i < kPlanetCount; ++i)
+                    leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
+
+                SweepFill(CRGB(246, 200, 160), SweepDirection::RightToLeft, 2000, 3);
+                g_showcaseActive = false;
+                advanceStage(3);
+                break;
+            }
+            case 3: // Hold — spotlights wash color, logo, and planets stay lit
             {
                 SetSpotlights(GetSpotlightWashColor());
                 FillMachineRange(CRGB(246, 200, 160));
@@ -1758,6 +1959,13 @@ void SetAllStopped(bool stopped)
     }
 }
 
+void RunSweep(uint8_t direction, bool off)
+{
+    g_sweepDirection = direction;
+    g_sweepOff = off;
+    g_sweepRequested = true;
+}
+
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
@@ -1769,6 +1977,33 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 
     for (;;)
     {
+        // Handle sweep requests (runs from this task to avoid blocking the HTTP handler)
+        if (g_sweepRequested)
+        {
+            g_sweepRequested = false;
+            g_allStopped = true;   // pause other tasks
+            delay(20);             // let them reach their pause point
+
+            SweepDirection dir;
+            switch (g_sweepDirection)
+            {
+                case 0: dir = SweepDirection::LeftToRight;  break;
+                case 1: dir = SweepDirection::RightToLeft;  break;
+                case 2: dir = SweepDirection::TopToBottom;   break;
+                case 3: dir = SweepDirection::BottomToTop;   break;
+                case 4: dir = SweepDirection::OuterToInner;  break;
+                case 5: dir = SweepDirection::InnerToOuter;  break;
+                default: dir = SweepDirection::LeftToRight;  break;
+            }
+            if (g_sweepOff)
+                SweepOff(dir, 2000, 3);
+            else
+                SweepFill(CRGB(246, 200, 160), dir, 2000, 3);
+
+            // Stay paused so sweep result is visible; /resume to continue
+            continue;
+        }
+
         if (g_allStopped || g_globalHeartActive || g_showcaseActive || g_awakeningActive)
         {
             PostDrawHandler();

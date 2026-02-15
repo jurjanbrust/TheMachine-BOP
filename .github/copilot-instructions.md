@@ -58,6 +58,26 @@ The LED strip starts at index 0 (top-left corner) and spirals clockwise inward t
 - **Inner block** — indices 99→105 (left column, B→T), 106→120 (top→right, filling center)
 - The strip snakes inward; higher indices are closer to the center of the backglass artwork.
 
+### Spatial Coordinate Map & Sweep System
+
+Each of the 121 LEDs on strip 1 is assigned an (x, y) coordinate on a 19×15 grid via `kLedCoords[]`. This enables animations that move through **physical space** instead of sequential index order.
+
+**Sweep directions (`SweepDirection` enum):**
+
+| Direction | Description |
+|---|---|
+| `LeftToRight` | Lights columns left-to-right (x = 0 → 18) |
+| `RightToLeft` | Lights columns right-to-left (x = 18 → 0) |
+| `TopToBottom` | Lights rows top-to-bottom (y = 0 → 14) |
+| `BottomToTop` | Lights rows bottom-to-top (y = 14 → 0) |
+| `OuterToInner` | Lights outer ring first, then middle, then inner block |
+| `InnerToOuter` | Lights inner block first, then middle, then outer ring |
+
+**Functions:**
+- `SweepFill(color, direction, totalDurationMs, ledsPerStep)` — progressively lights all strip 1 LEDs in spatial order
+- `SweepOff(direction, totalDurationMs, ledsPerStep)` — turns LEDs off in spatial order
+- `StartupSweep()` — right-to-left warm white reveal used at boot
+
 ---
 
 ## LED Zones & Named Positions (Strip 1)
@@ -115,7 +135,7 @@ Cycles through active modes, with an **Idle** rest period between each. Each act
 | **Sparkle** | Random white sparkle flashes on the logo with fade-to-black decay |
 | **Scanner** | Single red LED bounces back and forth (Larson scanner / Knight Rider style) |
 | **Comet** | Bright white pixel sweeps across the 10 logo LEDs leaving a warm-white fading trail (shooting star effect) |
-| **Showcase** | Multi-stage theatrical sequence: blacks out all LEDs, then spotlights flicker like fluorescent tubes turning on for 10 seconds while everything else stays dark. All other animation tasks (shuttle, heartbeat, jackpot) pause during the flicker via the `g_showcaseActive` flag. Once the spotlights are permanently lit, the logo ramps up in warm white (246,200,160) and planets fade in to their base colors. During hold, spotlights slowly wash through warm tones (white → warm white → soft amber → back). 3 stages. |
+| **Showcase** | Multi-stage theatrical sequence: blacks out all LEDs, then spotlights flicker like fluorescent tubes turning on for 10 seconds while everything else stays dark. All other animation tasks (shuttle, heartbeat, jackpot) pause during the flicker via the `g_showcaseActive` flag. Once the spotlights are permanently lit, the logo ramps up in warm white (246,200,160) and planets fade in to their base colors. A right-to-left warm white sweep then fills the entire backglass. During hold, spotlights slowly wash through warm tones (white → warm white → soft amber → back). 4 stages. |
 | **Idle** | Solid warm white (246,200,160) fill — rest state between active modes |
 
 **Rotation order:** Rainbow → Idle → Pulse → Idle → Sparkle → Idle → Scanner → Idle → Comet → Idle → Showcase → Idle → (repeat)
@@ -268,7 +288,12 @@ Triggered via HTTP API (`/awakening`) or automatically every **30 minutes** (`kA
 
 ## Static Startup State
 
-On boot, both strips start fully dark (black). The Machine logo task begins in **Showcase** mode, which runs the 10-second fluorescent tube flicker sequence as the theatrical power-on reveal. After the flicker completes, the spotlights lock on and the logo and planets ramp up. Once Showcase finishes, the normal mode rotation continues (Idle → Rainbow → ...).
+On boot, both strips start dark. The Machine logo task begins in **Showcase** mode, a 4-stage theatrical reveal:
+
+1. **Flicker (10s):** Spotlights flicker like fluorescent tubes powering on; everything else stays dark.
+2. **Ramp (2s + 1s hold):** Spotlights lock on solid. The Machine logo and planet LEDs ramp up to full brightness.
+3. **Sweep reveal (2s):** A right-to-left warm white `SweepFill` washes across all of strip 1, filling the backglass artwork.
+4. **Hold:** Spotlights slowly wash through warm tones, logo and planets stay lit. Normal mode rotation then begins (Idle → Rainbow → …).
 
 ---
 
@@ -280,6 +305,9 @@ On boot, both strips start fully dark (black). The Machine logo task begins in *
 | `/setbrightness` | GET | `value` (0–255) | Sets global brightness and persists to NVS flash |
 | `/jackpot` | GET | *(none)* | Triggers a 5-second jackpot win celebration on the jackpot ring |
 | `/awakening` | GET | *(none)* | Triggers the 1-minute Awakening sequence — bride comes alive |
+| `/stop` | GET | *(none)* | Stops all animations and turns all LEDs off (both strips). Use before `/setled` to inspect individual LEDs |
+| `/resume` | GET | *(none)* | Resumes normal animation after `/stop` |
+| `/sweep` | GET | `dir` (0–5), `off` (flag) | Runs a spatial sweep across strip 1. `dir`: 0=L→R, 1=R→L, 2=T→B, 3=B→T, 4=outer→inner, 5=inner→outer. Add `&off` to sweep off instead of on |
 
 ---
 

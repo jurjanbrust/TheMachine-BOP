@@ -28,6 +28,7 @@ class ApiWebServer
         _server.on("/awakening",      HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->triggerAwakening(pRequest); });
         _server.on("/stop",           HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->stopAll(pRequest); });
         _server.on("/resume",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->resumeAll(pRequest); });
+        _server.on("/sweep",          HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->sweep(pRequest); });
 
         _server.begin();
         debugI("HTTP server started");
@@ -110,6 +111,27 @@ class ApiWebServer
     {
         debugI("Resume all modes triggered via API");
         SetAllStopped(false);
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void sweep(AsyncWebServerRequest * pRequest)
+    {
+        // dir: 0=L→R, 1=R→L, 2=T→B, 3=B→T, 4=outer→inner, 5=inner→outer
+        uint8_t dir = 0;
+        bool off = false;
+        if (pRequest->hasParam("dir", false, false))
+        {
+            AsyncWebParameter * p = pRequest->getParam("dir", false, false);
+            dir = static_cast<uint8_t>(strtoul(p->value().c_str(), NULL, 10));
+        }
+        if (pRequest->hasParam("off", false, false))
+        {
+            off = true;
+        }
+        debugI("Sweep triggered via API: dir=%u off=%d", dir, off);
+        RunSweep(dir, off);
         AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);

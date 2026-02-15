@@ -116,7 +116,8 @@ void setup() {
     FastLED.setBrightness(startupBrightness);
     debugI("Startup brightness set to %u", startupBrightness);
 
-    // Start dark — Showcase mode will handle the theatrical reveal
+    // Start dark — Showcase mode handles the theatrical reveal:
+    // flicker → logo/planets ramp → right-to-left sweep
     fill_solid(leds0, NUM_LEDS0, CRGB::Black);
     fill_solid(leds1, NUM_LEDS1, CRGB::Black);
     FastLED.show();

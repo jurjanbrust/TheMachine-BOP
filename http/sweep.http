@@ -1,0 +1,26 @@
+GET http://192.168.10.99/stop
+
+
+### Sweep Left to Right
+GET http://192.168.10.99/sweep?dir=0
+
+### Sweep Right to Left
+GET http://192.168.10.99/sweep?dir=1
+
+### Sweep Top to Bottom
+GET http://192.168.10.99/sweep?dir=2
+
+### Sweep Bottom to Top
+GET http://192.168.10.99/sweep?dir=3
+
+### Sweep Outer to Inner
+GET http://192.168.10.99/sweep?dir=4
+
+### Sweep Inner to Outer
+GET http://192.168.10.99/sweep?dir=5
+
+### Sweep Off Left to Right
+GET http://192.168.10.99/sweep?dir=0&off
+
+### Sweep Off Right to Left
+GET http://192.168.10.99/sweep?dir=1&off
