@@ -113,6 +113,9 @@ namespace
     volatile bool g_radialPulseRequested = false;
     volatile bool g_plasmaRequested = false;
     volatile bool g_rainRequested = false;
+    volatile bool g_breathingGridRequested = false;
+    volatile bool g_spotlightConeRequested = false;
+    volatile bool g_spatialMeteorRequested = false;
 
     const CRGB kSpotlightColor = CRGB::White;
 
@@ -2047,6 +2050,21 @@ void RunRain()
     g_rainRequested = true;
 }
 
+void RunBreathingGrid()
+{
+    g_breathingGridRequested = true;
+}
+
+void RunSpotlightCone()
+{
+    g_spotlightConeRequested = true;
+}
+
+void RunSpatialMeteor()
+{
+    g_spatialMeteorRequested = true;
+}
+
 namespace
 {
     // -----------------------------------------------------------------------
@@ -2320,6 +2338,239 @@ namespace
             delay(80); // drop speed
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Breathing Grid — diagonal brightness wave across the whole panel
+    // -----------------------------------------------------------------------
+    void RunBreathingGridEffect(uint32_t durationMs = 10000)
+    {
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            float t = (millis() - start) / 1000.0f;
+
+            for (uint8_t i = 0; i < NUM_LEDS1; i++)
+            {
+                float x = kLedCoords[i].x;
+                float y = kLedCoords[i].y;
+
+                // Two overlapping sine waves create a diagonal rolling breath
+                float wave1 = sinf(t * 1.8f + x * 0.35f + y * 0.25f);
+                float wave2 = sinf(t * 1.2f - x * 0.20f + y * 0.40f);
+                float combined = (wave1 + wave2) * 0.5f; // -1..1
+
+                // Map to brightness 20..255
+                uint8_t bri = (uint8_t)(20 + (combined + 1.0f) * 0.5f * 235);
+
+                // Slowly shifting hue based on position + time
+                uint8_t hue = (uint8_t)(t * 8.0f + x * 6.0f + y * 4.0f);
+                leds1[i] = CHSV(hue, 180, bri);
+            }
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Spotlight Cone — two spotlights cast virtual light cones across panel
+    // -----------------------------------------------------------------------
+    void RunSpotlightConeEffect(uint32_t durationMs = 10000)
+    {
+        const uint32_t start = millis();
+
+        // Spotlight physical grid positions
+        const float spot1x = kLedCoords[spotlights1].x; // LED 85
+        const float spot1y = kLedCoords[spotlights1].y;
+        const float spot2x = kLedCoords[spotlights2].x; // LED 29
+        const float spot2y = kLedCoords[spotlights2].y;
+
+        // Pre-compute static distances from each spotlight
+        float dist1[NUM_LEDS1];
+        float dist2[NUM_LEDS1];
+        float maxDist = 0;
+        for (uint8_t i = 0; i < NUM_LEDS1; i++)
+        {
+            float dx1 = kLedCoords[i].x - spot1x;
+            float dy1 = kLedCoords[i].y - spot1y;
+            dist1[i] = sqrtf(dx1 * dx1 + dy1 * dy1);
+
+            float dx2 = kLedCoords[i].x - spot2x;
+            float dy2 = kLedCoords[i].y - spot2y;
+            dist2[i] = sqrtf(dx2 * dx2 + dy2 * dy2);
+
+            if (dist1[i] > maxDist) maxDist = dist1[i];
+            if (dist2[i] > maxDist) maxDist = dist2[i];
+        }
+
+        while (millis() - start < durationMs)
+        {
+            float t = (millis() - start) / 1000.0f;
+
+            // Cone radius pulses slowly — spotlights "breathe"
+            float radius1 = 5.0f + 4.0f * sinf(t * 0.8f);
+            float radius2 = 5.0f + 4.0f * sinf(t * 0.8f + 2.0f);
+
+            for (uint8_t i = 0; i < NUM_LEDS1; i++)
+            {
+                // Brightness falls off with distance from each spotlight
+                float intensity1 = max(0.0f, 1.0f - dist1[i] / radius1);
+                float intensity2 = max(0.0f, 1.0f - dist2[i] / radius2);
+
+                // Combine (additive, clamped)
+                float intensity = min(1.0f, intensity1 + intensity2);
+
+                // Warm spotlight color with slight hue variation per spotlight
+                uint8_t bri = (uint8_t)(intensity * 255);
+                if (bri < 4) bri = 0;
+
+                // Spot 1 is warm amber, spot 2 is cool white — blend by contribution
+                if (bri > 0)
+                {
+                    float total = intensity1 + intensity2;
+                    float r1 = (total > 0) ? intensity1 / total : 0.5f;
+                    // Warm amber (255,180,60) ↔ cool white (200,220,255)
+                    uint8_t r = (uint8_t)(r1 * 255 + (1 - r1) * 200);
+                    uint8_t g = (uint8_t)(r1 * 180 + (1 - r1) * 220);
+                    uint8_t b = (uint8_t)(r1 * 60  + (1 - r1) * 255);
+                    leds1[i] = CRGB(r, g, b).nscale8(bri);
+                }
+                else
+                {
+                    leds1[i] = CRGB::Black;
+                }
+            }
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Spatial Meteor Shower — meteors travel at spatial angles across the grid
+    // -----------------------------------------------------------------------
+    void RunSpatialMeteorEffect(uint32_t durationMs = 10000)
+    {
+        const uint32_t start = millis();
+        const uint8_t kMaxMeteors = 5;
+
+        struct SpatialMeteor
+        {
+            float x, y;     // current floating-point position
+            float dx, dy;   // direction vector (normalized, scaled by speed)
+            uint8_t hue;
+            bool active;
+        };
+
+        SpatialMeteor meteors[kMaxMeteors];
+        memset(meteors, 0, sizeof(meteors));
+
+        uint8_t trail[NUM_LEDS1];
+        memset(trail, 0, sizeof(trail));
+
+        auto spawnMeteor = [&](SpatialMeteor &m) {
+            // Pick a random direction: 0=TL→BR, 1=TR→BL, 2=T→B, 3=BR→TL
+            uint8_t dir = random8(4);
+            switch (dir)
+            {
+                case 0: // top-left to bottom-right
+                    m.x = -1;
+                    m.y = random8(kGridRows / 2);
+                    m.dx = 1.2f; m.dy = 0.8f;
+                    break;
+                case 1: // top-right to bottom-left
+                    m.x = kGridCols;
+                    m.y = random8(kGridRows / 2);
+                    m.dx = -1.2f; m.dy = 0.8f;
+                    break;
+                case 2: // top to bottom
+                    m.x = random8(kGridCols);
+                    m.y = -1;
+                    m.dx = 0; m.dy = 1.0f;
+                    break;
+                case 3: // bottom-right to top-left
+                    m.x = kGridCols;
+                    m.y = kGridRows - 1 + random8(3);
+                    m.dx = -1.0f; m.dy = -0.6f;
+                    break;
+            }
+            m.hue = random8();
+            m.active = true;
+        };
+
+        while (millis() - start < durationMs)
+        {
+            // Decay trail
+            for (uint8_t i = 0; i < NUM_LEDS1; i++)
+            {
+                trail[i] = scale8(trail[i], 160);
+                if (trail[i] < 4) trail[i] = 0;
+            }
+
+            // Randomly spawn new meteors
+            for (uint8_t m = 0; m < kMaxMeteors; m++)
+            {
+                if (!meteors[m].active && random8() < 30)
+                {
+                    spawnMeteor(meteors[m]);
+                }
+            }
+
+            // Update each active meteor
+            for (uint8_t m = 0; m < kMaxMeteors; m++)
+            {
+                if (!meteors[m].active) continue;
+
+                meteors[m].x += meteors[m].dx;
+                meteors[m].y += meteors[m].dy;
+
+                // Check bounds
+                if (meteors[m].x < -2 || meteors[m].x > kGridCols + 2 ||
+                    meteors[m].y < -2 || meteors[m].y > kGridRows + 2)
+                {
+                    meteors[m].active = false;
+                    continue;
+                }
+
+                // Find the nearest LED to the meteor's position
+                float bestDist = 999;
+                int8_t bestIdx = -1;
+                for (uint8_t i = 0; i < NUM_LEDS1; i++)
+                {
+                    float dx = kLedCoords[i].x - meteors[m].x;
+                    float dy = kLedCoords[i].y - meteors[m].y;
+                    float d = dx * dx + dy * dy; // no sqrt needed for comparison
+                    if (d < bestDist)
+                    {
+                        bestDist = d;
+                        bestIdx = i;
+                    }
+                }
+
+                // Light the nearest LED as the meteor head
+                if (bestIdx >= 0 && bestDist < 4.0f) // within ~2 LED units
+                {
+                    trail[bestIdx] = 255;
+                }
+            }
+
+            // Render trails
+            for (uint8_t i = 0; i < NUM_LEDS1; i++)
+            {
+                if (trail[i] > 0)
+                {
+                    // Near-white with subtle hue tint
+                    leds1[i] = CHSV(160, 40, trail[i]);
+                }
+                else
+                {
+                    leds1[i] = CRGB::Black;
+                }
+            }
+            FastLED.show();
+            delay(60);
+        }
+    }
+
 } // namespace
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
@@ -2399,6 +2650,45 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
             delay(20);
 
             RunRainEffect(10000);
+
+            // Stay paused so result is visible; /resume to continue
+            continue;
+        }
+
+        // Handle breathing grid requests (HTTP-triggered — pauses after)
+        if (g_breathingGridRequested)
+        {
+            g_breathingGridRequested = false;
+            g_allStopped = true;
+            delay(20);
+
+            RunBreathingGridEffect(10000);
+
+            // Stay paused so result is visible; /resume to continue
+            continue;
+        }
+
+        // Handle spotlight cone requests (HTTP-triggered — pauses after)
+        if (g_spotlightConeRequested)
+        {
+            g_spotlightConeRequested = false;
+            g_allStopped = true;
+            delay(20);
+
+            RunSpotlightConeEffect(10000);
+
+            // Stay paused so result is visible; /resume to continue
+            continue;
+        }
+
+        // Handle spatial meteor requests (HTTP-triggered — pauses after)
+        if (g_spatialMeteorRequested)
+        {
+            g_spatialMeteorRequested = false;
+            g_allStopped = true;
+            delay(20);
+
+            RunSpatialMeteorEffect(10000);
 
             // Stay paused so result is visible; /resume to continue
             continue;

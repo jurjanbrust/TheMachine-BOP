@@ -32,6 +32,9 @@ class ApiWebServer
         _server.on("/radialpulse",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->radialPulse(pRequest); });
         _server.on("/plasma",          HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->plasma(pRequest); });
         _server.on("/rain",            HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->rain(pRequest); });
+        _server.on("/breathinggrid",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->breathingGrid(pRequest); });
+        _server.on("/spotlightcone",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->spotlightCone(pRequest); });
+        _server.on("/spatialmeteor",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->spatialMeteor(pRequest); });
 
         _server.begin();
         debugI("HTTP server started");
@@ -157,6 +160,33 @@ class ApiWebServer
     {
         debugI("Rain triggered via API");
         RunRain();
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void breathingGrid(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Breathing grid triggered via API");
+        RunBreathingGrid();
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void spotlightCone(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Spotlight cone triggered via API");
+        RunSpotlightCone();
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void spatialMeteor(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Spatial meteor triggered via API");
+        RunSpatialMeteor();
         AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);

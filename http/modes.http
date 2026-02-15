@@ -29,3 +29,24 @@ GET http://192.168.10.99/sweep?dir=8
 
 ### Radial Pulse
 GET http://192.168.10.99/radialpulse
+
+### Plasma / Lava Lamp
+GET http://192.168.10.99/plasma
+
+### Rain
+GET http://192.168.10.99/rain
+
+### Breathing Grid
+GET http://192.168.10.99/breathinggrid
+
+### Spotlight Cone
+GET http://192.168.10.99/spotlightcone
+
+### Spatial Meteor Shower
+GET http://192.168.10.99/spatialmeteor
+
+### Jackpot
+GET http://192.168.10.99/jackpot
+
+### Awakening
+GET http://192.168.10.99/awakening

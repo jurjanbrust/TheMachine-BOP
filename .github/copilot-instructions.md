@@ -279,7 +279,10 @@ On boot, both strips start fully dark (black). The Machine logo task begins in *
 | `/stop` | GET | *(none)* | Stops all animations, turns off all LEDs |
 | `/resume` | GET | *(none)* | Resumes normal animation after stop |
 | `/sweep` | GET | `dir` (0–8) | Spatial sweep fill: 0=L→R, 1=R→L, 2=T→B, 3=B→T, 4=outer→inner, 5=inner→outer, 6=diag TL→BR, 7=diag TR→BL, 8=diag BR→TL |
-| `/radialpulse` | GET | *(none)* | Sonar-like ripple expanding from center of grid outward (3 concentric rings with rainbow tint) |
+| `/radialpulse` | GET | *(none)* | Sonar-like ripple expanding from center of grid outward (3 concentric rings with rainbow tint) |\n| `/plasma` | GET | *(none)* | 10-second spatial plasma / lava lamp effect using 2D sine waves across the grid |\n| `/rain` | GET | *(none)* | 10-second rain effect — drops of cyan light fall down random columns with fading trails |
+| `/breathinggrid` | GET | *(none)* | 10-second diagonal breathing wave — all LEDs breathe with spatial phase offset creating a rolling brightness wave |
+| `/spotlightcone` | GET | *(none)* | 10-second spotlight cone effect — two spotlights cast pulsing light cones (warm amber + cool white) across the panel |
+| `/spatialmeteor` | GET | *(none)* | 10-second spatial meteor shower — up to 5 meteors travel at diagonal angles across the grid with fading trails |
 
 ---
 

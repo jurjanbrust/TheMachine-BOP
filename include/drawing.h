@@ -19,6 +19,9 @@ void RunSweep(uint8_t direction);
 void RunRadialPulse();
 void RunPlasma();
 void RunRain();
+void RunBreathingGrid();
+void RunSpotlightCone();
+void RunSpatialMeteor();
 void FlickerSpotlight(uint8_t index, const CRGB & color);
 void FlickerSpotlights(uint8_t indexA, uint8_t indexB, const CRGB & color);
 
