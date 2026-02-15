@@ -108,7 +108,7 @@ namespace
     volatile bool g_allStopped = false;
     volatile bool g_sweepRequested = false;
     volatile uint8_t g_sweepDirection = 0;
-    volatile bool g_sweepOff = false;
+
     const CRGB kSpotlightColor = CRGB::White;
 
     // Meteor shower state
@@ -253,34 +253,90 @@ namespace
     }
 
     // -----------------------------------------------------------------------
-    // SweepFill — progressively light LEDs in spatial order.
+    // SweepFill — progressively light LEDs in spatial order with fade-in trail.
     // `color`         : target color for each LED
     // `dir`           : sweep direction
     // `totalDurationMs`: how long the full sweep takes
-    // `ledsPerStep`   : how many LEDs to light each frame
+    // `ledsPerStep`   : how many LEDs to light each frame (ignored for
+    //                   T→B / B→T where all LEDs on the same row light at once)
     // -----------------------------------------------------------------------
+    static const uint8_t kFadeSteps = 4;                    // frames to reach full brightness
+    static const uint8_t kFadeLevels[kFadeSteps] = { 60, 130, 200, 255 }; // brightness ramp
+
     void SweepFill(CRGB color, SweepDirection dir,
                    uint32_t totalDurationMs = 2000, uint8_t ledsPerStep = 4)
     {
         uint8_t order[NUM_LEDS1];
         BuildSweepOrder(order, dir);
 
-        const uint32_t stepDelay = totalDurationMs / ((NUM_LEDS1 + ledsPerStep - 1) / ledsPerStep);
-        uint8_t idx = 0;
-        while (idx < NUM_LEDS1)
-        {
-            for (uint8_t s = 0; s < ledsPerStep && idx < NUM_LEDS1; ++s, ++idx)
-                leds1[order[idx]] = color;
-            FastLED.show();
-            delay(stepDelay);
-        }
-    }
+        // Track which LEDs are fading in: age 0 = not yet lit, 1..kFadeSteps = ramping
+        uint8_t age[NUM_LEDS1];
+        memset(age, 0, sizeof(age));
 
-    // SweepOff — turn LEDs off in spatial order
-    void SweepOff(SweepDirection dir,
-                  uint32_t totalDurationMs = 1500, uint8_t ledsPerStep = 4)
-    {
-        SweepFill(CRGB::Black, dir, totalDurationMs, ledsPerStep);
+        // Helper: advance brightness of all partially-faded LEDs
+        auto tickFade = [&]()
+        {
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                if (age[i] > 0 && age[i] <= kFadeSteps)
+                {
+                    uint8_t lvl = kFadeLevels[age[i] - 1];
+                    leds1[order[i]] = color;
+                    leds1[order[i]].nscale8_video(lvl);
+                    if (age[i] < kFadeSteps)
+                        ++age[i];
+                }
+            }
+        };
+
+        // For vertical sweeps, light entire rows at once
+        const bool byRow = (dir == SweepDirection::TopToBottom ||
+                            dir == SweepDirection::BottomToTop);
+
+        if (byRow)
+        {
+            // Count distinct key values (rows) to calculate delay
+            uint8_t groupCount = 1;
+            for (uint8_t i = 1; i < NUM_LEDS1; ++i)
+            {
+                if (SweepKey(order[i], dir) != SweepKey(order[i - 1], dir))
+                    ++groupCount;
+            }
+            const uint32_t stepDelay = totalDurationMs / groupCount;
+
+            uint8_t idx = 0;
+            while (idx < NUM_LEDS1)
+            {
+                int16_t currentKey = SweepKey(order[idx], dir);
+                // Mark all LEDs sharing this key as newly lit
+                while (idx < NUM_LEDS1 && SweepKey(order[idx], dir) == currentKey)
+                {
+                    age[idx] = 1;
+                    ++idx;
+                }
+                tickFade();
+                FastLED.show();
+                delay(stepDelay);
+            }
+        }
+        else
+        {
+            const uint32_t stepDelay = totalDurationMs / ((NUM_LEDS1 + ledsPerStep - 1) / ledsPerStep);
+            uint8_t idx = 0;
+            while (idx < NUM_LEDS1)
+            {
+                for (uint8_t s = 0; s < ledsPerStep && idx < NUM_LEDS1; ++s, ++idx)
+                    age[idx] = 1;
+                tickFade();
+                FastLED.show();
+                delay(stepDelay);
+            }
+        }
+
+        // Final pass: ensure all LEDs reach full brightness
+        for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            leds1[order[i]] = color;
+        FastLED.show();
     }
 
     // Startup sweep: right-to-left warm white reveal for a pleasant boot look
@@ -1956,10 +2012,9 @@ void SetAllStopped(bool stopped)
     }
 }
 
-void RunSweep(uint8_t direction, bool off)
+void RunSweep(uint8_t direction)
 {
     g_sweepDirection = direction;
-    g_sweepOff = off;
     g_sweepRequested = true;
 }
 
@@ -1992,10 +2047,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
                 case 5: dir = SweepDirection::InnerToOuter;  break;
                 default: dir = SweepDirection::LeftToRight;  break;
             }
-            if (g_sweepOff)
-                SweepOff(dir, 2000, 3);
-            else
-                SweepFill(CRGB(246, 200, 160), dir, 2000, 3);
+            SweepFill(CRGB(246, 200, 160), dir, 2000, 3);
 
             // Stay paused so sweep result is visible; /resume to continue
             continue;

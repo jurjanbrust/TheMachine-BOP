@@ -15,7 +15,7 @@ void TriggerJackpotCelebration();
 void TriggerAwakening();
 void SetAllStopped(bool stopped);
 void StartupSweep();
-void RunSweep(uint8_t direction, bool off);
+void RunSweep(uint8_t direction);
 void FlickerSpotlight(uint8_t index, const CRGB & color);
 void FlickerSpotlights(uint8_t indexA, uint8_t indexB, const CRGB & color);
 

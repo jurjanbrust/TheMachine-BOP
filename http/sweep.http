@@ -18,9 +18,3 @@ GET http://192.168.10.99/sweep?dir=4
 
 ### Sweep Inner to Outer
 GET http://192.168.10.99/sweep?dir=5
-
-### Sweep Off Left to Right
-GET http://192.168.10.99/sweep?dir=0&off
-
-### Sweep Off Right to Left
-GET http://192.168.10.99/sweep?dir=1&off

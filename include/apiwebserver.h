@@ -120,18 +120,13 @@ class ApiWebServer
     {
         // dir: 0=L→R, 1=R→L, 2=T→B, 3=B→T, 4=outer→inner, 5=inner→outer
         uint8_t dir = 0;
-        bool off = false;
         if (pRequest->hasParam("dir", false, false))
         {
             AsyncWebParameter * p = pRequest->getParam("dir", false, false);
             dir = static_cast<uint8_t>(strtoul(p->value().c_str(), NULL, 10));
         }
-        if (pRequest->hasParam("off", false, false))
-        {
-            off = true;
-        }
-        debugI("Sweep triggered via API: dir=%u off=%d", dir, off);
-        RunSweep(dir, off);
+        debugI("Sweep triggered via API: dir=%u", dir);
+        RunSweep(dir);
         AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);
