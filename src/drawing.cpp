@@ -339,15 +339,15 @@ namespace
         FastLED.show();
     }
 
-    // Startup sweep: right-to-left warm white reveal for a pleasant boot look
+    // Startup sweep: bottom-to-top warm white reveal for a pleasant boot look
     void StartupSweep()
     {
         fill_solid(leds0, NUM_LEDS0, CRGB::Black);
         fill_solid(leds1, NUM_LEDS1, CRGB::Black);
         FastLED.show();
 
-        // Strip 1: sweep right-to-left with warm white
-        SweepFill(CRGB(246, 200, 160), SweepDirection::RightToLeft, 2000, 3);
+        // Strip 1: sweep bottom-to-top with warm white
+        SweepFill(CRGB(246, 200, 160), SweepDirection::BottomToTop, 2000, 3);
         delay(400);
 
         // Fade out before handing off to Showcase
@@ -941,7 +941,7 @@ namespace
                 }
                 break;
             }
-            case 2: // Sweep reveal — warm white right-to-left across the whole backglass
+            case 2: // Sweep reveal — warm white bottom-to-top across the whole backglass
             {
                 // Keep spotlights, logo and planets lit during the sweep
                 SetSpotlights(kSpotlightColor);
@@ -949,7 +949,8 @@ namespace
                 for (uint8_t i = 0; i < kPlanetCount; ++i)
                     leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
 
-                SweepFill(CRGB(246, 200, 160), SweepDirection::RightToLeft, 2000, 3);
+                SweepFill(CRGB(246, 200, 160), SweepDirection::BottomToTop, 2000, 3);
+                delay(4000);  // hold the fully-lit state for 4 seconds
                 g_showcaseActive = false;
                 advanceStage(3);
                 break;
@@ -2198,6 +2199,7 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
         if (now - lastModeChange >= modeDuration)
         {
             lastModeChange = now;
+
             if (currentMode == MachineMode::Idle)
             {
                 currentActiveMode = NextActiveMachineMode(currentActiveMode);
@@ -2208,6 +2210,32 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
                 currentMode = MachineMode::Idle;
             }
             debugI("Switching The Machine mode to %u", static_cast<unsigned>(currentMode));
+
+            // Smooth cross-fade from current LED state to next mode (1 second)
+            // Snapshot the current logo LED colors
+            CRGB snapshot[kMachineLedCount];
+            for (uint8_t i = 0; i < kMachineLedCount; ++i)
+                snapshot[i] = leds1[theMachineFirstLed + i];
+
+            const uint32_t kCrossFadeMs = 1000;
+            const uint32_t fadeStart = millis();
+            while (millis() - fadeStart < kCrossFadeMs)
+            {
+                if (g_allStopped || g_globalHeartActive) break;
+
+                // Render the new mode into the LEDs
+                RunMachineMode(currentMode);
+
+                // Blend: lerp from snapshot toward new state
+                uint8_t blendAmt = (uint8_t)(((millis() - fadeStart) * 255) / kCrossFadeMs);
+                for (uint8_t i = 0; i < kMachineLedCount; ++i)
+                {
+                    uint8_t idx = theMachineFirstLed + i;
+                    leds1[idx] = blend(snapshot[i], leds1[idx], blendAmt);
+                }
+                FastLED.show();
+                delay(16); // ~60 fps
+            }
         }
 
         RunMachineMode(currentMode);

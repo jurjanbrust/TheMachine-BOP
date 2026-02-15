@@ -254,7 +254,7 @@ Triggered via HTTP API (`/awakening`) or automatically every **30 minutes** (`kA
 
 ## Static Startup State
 
-On boot, both strips start fully dark (black). The Machine logo task begins in **Showcase** mode, which runs the 10-second fluorescent tube flicker sequence as the theatrical power-on reveal. After the flicker completes, the spotlights lock on and the logo and planets ramp up. Once Showcase finishes, the normal mode rotation continues (Idle → Rainbow → ...).
+On boot, both strips start fully dark (black). The Machine logo task begins in **Showcase** mode, which runs the 10-second fluorescent tube flicker sequence as the theatrical power-on reveal. After the flicker completes, the spotlights lock on, the logo and planets ramp up, and then a warm-white bottom-to-top sweep fills the entire backglass (all LEDs on the same row light simultaneously). Have a pause for 4 seconds. Once Showcase finishes, the normal mode rotation continues (Idle → Rainbow → ...), but is uses a smooth transition from the current colors instead of an abrupt switch.
 
 ---
 
