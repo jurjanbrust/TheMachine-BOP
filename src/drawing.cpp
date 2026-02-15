@@ -13,7 +13,6 @@ namespace
 {
     constexpr uint16_t kGlobalHeartIntervalSeconds = 300;   // 5 minutes
     constexpr uint32_t kGlobalHeartDurationMs      = 15000;  // run heartbeat for 15s
-    constexpr uint32_t kAutoJackpotIntervalMs      = 600000; // 10 minutes
     constexpr uint32_t kMachineActiveDurationMs    = 30000;  // active mode: 30 seconds
     constexpr uint32_t kMachineIdleDurationMs      = 120000; // idle pause: 2 minutes
     constexpr uint8_t  kMachineLedCount            = theMachineLastLed - theMachineFirstLed + 1;
@@ -62,11 +61,54 @@ namespace
     constexpr uint32_t kBrideModeDurationMs         = 20000;
     constexpr uint8_t  kBrideLedCount               = 33;
     constexpr uint32_t kJackpotCelebrationDurationMs = 5000;
-    constexpr uint32_t kSpotlightWashCycleMs        = 10000;
     constexpr uint32_t kAwakeningDurationMs          = 60000; // 1 minute total
-    constexpr uint32_t kAutoAwakeningIntervalMs       = 1800000; // 30 minutes
-    constexpr uint32_t kAutoRadialPulseIntervalMs     = 600000;  // 10 minutes
-    constexpr uint32_t kAutoSweepIntervalMs           = 900000;  // 15 minutes
+
+    // -----------------------------------------------------------------------
+    // Random-queue scheduler for auto-triggered special modes
+    // -----------------------------------------------------------------------
+    constexpr uint32_t kSchedulerCooldownMinMs  = 180000;  // 3 minutes min between modes
+    constexpr uint32_t kSchedulerCooldownMaxMs  = 480000;  // 8 minutes max between modes
+    constexpr uint32_t kSchedulerStartupDelayMs = 120000;  // 2 minutes grace period after boot
+
+    enum class SpecialMode : uint8_t
+    {
+        RadialPulse,
+        Sweep,
+        JackpotCelebration,
+        Awakening,
+        Plasma,
+        Rain,
+        BreathingGrid,
+        SpotlightCone,
+        SpatialMeteor,
+        COUNT  // must be last
+    };
+    constexpr uint8_t kSpecialModeCount = static_cast<uint8_t>(SpecialMode::COUNT);
+
+    // Scheduler state (owned by Task 1)
+    SpecialMode  g_modeQueue[kSpecialModeCount];
+    uint8_t      g_modeQueueIndex = kSpecialModeCount; // start exhausted → shuffle on first use
+    uint32_t     g_nextAutoModeTime = 0; // millis() timestamp for next auto mode
+
+    void ShuffleModeQueue()
+    {
+        // Fisher-Yates shuffle
+        for (uint8_t i = 0; i < kSpecialModeCount; ++i)
+            g_modeQueue[i] = static_cast<SpecialMode>(i);
+        for (uint8_t i = kSpecialModeCount - 1; i > 0; --i)
+        {
+            uint8_t j = random8(i + 1);
+            SpecialMode tmp = g_modeQueue[i];
+            g_modeQueue[i] = g_modeQueue[j];
+            g_modeQueue[j] = tmp;
+        }
+        g_modeQueueIndex = 0;
+    }
+
+    uint32_t RandomCooldown()
+    {
+        return random(kSchedulerCooldownMinMs, kSchedulerCooldownMaxMs + 1);
+    }
 
     constexpr uint8_t kPlanetIndices[kPlanetCount] = {
         moonTopLeft,
@@ -422,28 +464,20 @@ namespace
 
     void RenderCarHeadlights()
     {
-        // Alternating left/right pairs like passing traffic
-        const uint8_t phase = (millis() / kCarBlinkIntervalMs) % 2;
-        // Warm yellow headlight color
+        // Smooth crossfade between left/right pairs like passing traffic
+        // beatsin8 at 38 BPM gives a gentle ~1.6s sway cycle
+        const uint8_t crossfade = beatsin8(38, 0, 255);  // 0 = left bright, 255 = right bright
+
         const CRGB headlight = CRGB(255, 200, 60);
         const CRGB dim       = CRGB(40, 30, 8);
 
-        if (phase == 0)
-        {
-            // Left pair on, right pair dim
-            leds1[carleft1]   = headlight;
-            leds1[carleft2]   = headlight;
-            leds1[carright1]  = dim;
-            leds1[carright2]  = dim;
-        }
-        else
-        {
-            // Right pair on, left pair dim
-            leds1[carright1]  = headlight;
-            leds1[carright2]  = headlight;
-            leds1[carleft1]   = dim;
-            leds1[carleft2]   = dim;
-        }
+        // Left pair: bright when crossfade is low, dim when high
+        leds1[carleft1]  = blend(headlight, dim, crossfade);
+        leds1[carleft2]  = blend(headlight, dim, crossfade);
+        // Right pair: bright when crossfade is high, dim when low
+        leds1[carright1] = blend(dim, headlight, crossfade);
+        leds1[carright2] = blend(dim, headlight, crossfade);
+
         // People LED pulses gently alongside
         const uint8_t peopleBrightness = beatsin8(12, 80, 200);
         CRGB peopleColor = CRGB::White;
@@ -2571,6 +2605,75 @@ namespace
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Generic auto-wrapper: snapshot → fade to black → run effect → fade back
+    // -----------------------------------------------------------------------
+    void RunAutoEffect(void (*effectFn)(uint32_t), uint32_t durationMs = 10000)
+    {
+        CRGB snapshotBefore[NUM_LEDS1];
+        memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
+
+        // Cross-fade to black (500ms)
+        const uint32_t dimStart = millis();
+        while (millis() - dimStart < 500)
+        {
+            uint8_t blendAmt = (uint8_t)(((millis() - dimStart) * 255) / 500);
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                leds1[i] = blend(snapshotBefore[i], CRGB::Black, blendAmt);
+            FastLED.show();
+            delay(16);
+        }
+
+        // Run the effect
+        effectFn(durationMs);
+
+        // Cross-fade from end state back to live state (1s)
+        CRGB snapshotAfter[NUM_LEDS1];
+        memcpy(snapshotAfter, leds1, sizeof(snapshotAfter));
+        memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
+        CrossFadeFromSnapshot(snapshotAfter, 1000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Scheduler: dispatch a SpecialMode
+    // -----------------------------------------------------------------------
+    void RunScheduledMode(SpecialMode mode)
+    {
+        debugI("Scheduler: running mode %u", static_cast<unsigned>(mode));
+        switch (mode)
+        {
+            case SpecialMode::RadialPulse:
+                RunAutoRadialPulse();
+                break;
+            case SpecialMode::Sweep:
+                RunAutoSweep();
+                break;
+            case SpecialMode::JackpotCelebration:
+                g_jackpotCelebrationRequested = true;  // handled by Task 3
+                break;
+            case SpecialMode::Awakening:
+                g_awakeningRequested = true;           // handled by Task 2
+                break;
+            case SpecialMode::Plasma:
+                RunAutoEffect(RunPlasmaEffect);
+                break;
+            case SpecialMode::Rain:
+                RunAutoEffect(RunRainEffect);
+                break;
+            case SpecialMode::BreathingGrid:
+                RunAutoEffect(RunBreathingGridEffect);
+                break;
+            case SpecialMode::SpotlightCone:
+                RunAutoEffect(RunSpotlightConeEffect);
+                break;
+            case SpecialMode::SpatialMeteor:
+                RunAutoEffect(RunSpatialMeteorEffect);
+                break;
+            default:
+                break;
+        }
+    }
+
 } // namespace
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
@@ -2580,8 +2683,9 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
     uint32_t lastSparkleUpdate = millis();
     StreetMode currentStreetMode = StreetMode::Pulse;
     uint32_t lastStreetModeChange = millis();
-    uint32_t lastAutoRadialPulse = millis();
-    uint32_t lastAutoSweep = millis();
+
+    // Initialise the random-queue scheduler
+    g_nextAutoModeTime = millis() + kSchedulerStartupDelayMs;
 
     for (;;)
     {
@@ -2730,26 +2834,20 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         RunShuttleMode(currentMode, now - lastModeChange);
         BreathingEyes();
 
-        // Auto-trigger radial pulse every 10 minutes
-        if (now - lastAutoRadialPulse >= kAutoRadialPulseIntervalMs)
+        // Random-queue scheduler: pick the next special mode when cooldown expires
+        if (now >= g_nextAutoModeTime)
         {
-            lastAutoRadialPulse = now;
             if (!g_showcaseActive && !g_awakeningActive && !g_globalHeartActive)
             {
-                debugI("Auto radial pulse triggered");
-                RunAutoRadialPulse();
-            }
-        }
+                // Reshuffle when queue is exhausted
+                if (g_modeQueueIndex >= kSpecialModeCount)
+                    ShuffleModeQueue();
 
-        // Auto-trigger sweep every 15 minutes (offset from radial pulse)
-        if (now - lastAutoSweep >= kAutoSweepIntervalMs)
-        {
-            lastAutoSweep = now;
-            if (!g_showcaseActive && !g_awakeningActive && !g_globalHeartActive)
-            {
-                debugI("Auto sweep triggered");
-                RunAutoSweep();
+                SpecialMode mode = g_modeQueue[g_modeQueueIndex++];
+                RunScheduledMode(mode);
             }
+            // Schedule next mode (even if we skipped this one due to flags)
+            g_nextAutoModeTime = now + RandomCooldown();
         }
 
         PostDrawHandler();
@@ -2759,7 +2857,6 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 // heart
 void IRAM_ATTR DrawLoopTaskEntryTwo(void *) 
 {
-    uint32_t lastAutoAwakening = millis();
     for (;;)
     {
         // Check for awakening trigger BEFORE the allStopped guard so it
@@ -2769,24 +2866,12 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
             g_awakeningRequested = false;
             g_allStopped = false;   // resume other tasks
             RunAwakeningMode();
-            lastAutoAwakening = millis();
         }
 
         if (g_allStopped)
         {
             PostDrawHandler();
             continue;
-        }
-
-        // Auto-awakening every 30 minutes
-        const uint32_t now = millis();
-        if (now - lastAutoAwakening >= kAutoAwakeningIntervalMs)
-        {
-            lastAutoAwakening = now;
-            if (!g_showcaseActive)
-            {
-                RunAwakeningMode();
-            }
         }
 
         if (!g_allStopped && !g_showcaseActive && !g_awakeningActive)
@@ -2808,7 +2893,6 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
 void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 {
     ResetJackpotRuntime(JackpotMode::Classic, millis());
-    uint32_t lastAutoJackpot = millis();
     for (;;)
     {
         // Check for jackpot trigger BEFORE the allStopped guard so it
@@ -2819,22 +2903,12 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
             g_allStopped = false;   // resume other tasks
             RunJackpotCelebration();
             ResetJackpotRuntime(JackpotMode::Classic, millis());
-            lastAutoJackpot = millis();
         }
 
         if (g_allStopped)
         {
             PostDrawHandler();
             continue;
-        }
-
-        // Auto jackpot celebration every 10 minutes
-        const uint32_t now = millis();
-        if (now - lastAutoJackpot >= kAutoJackpotIntervalMs)
-        {
-            lastAutoJackpot = now;
-            RunJackpotCelebration();
-            ResetJackpotRuntime(JackpotMode::Classic, millis());
         }
 
         if (!g_allStopped && !g_globalHeartActive && !g_showcaseActive && !g_jackpotCelebrationActive && !g_awakeningActive)

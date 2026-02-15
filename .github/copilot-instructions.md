@@ -170,7 +170,7 @@ The 5 planet LEDs (moon, blue planet left/right, Jupiter upper/lower) receive co
 
 ### Jackpot Win Celebration
 
-Triggered via HTTP API (`/jackpot`) or automatically every **10 minutes** (`kAutoJackpotIntervalMs = 600000`). Overrides normal jackpot animation for 5 seconds:
+Triggered via HTTP API (`/jackpot`) or automatically via the random queue scheduler. Overrides normal jackpot animation for 5 seconds:
 
 1. **Rainbow Flash (2s):** Rapid rainbow hue cycling across all 48 jackpot LEDs at 120 BPM
 2. **Golden Cascade (3s):** Segments fill one by one with Gold, random white sparkles flash on filled LEDs then blend back to gold
@@ -238,17 +238,17 @@ Four LEDs near the end of strip 0 — initialized to BlueViolet at startup, then
 
 ### Radial Pulse
 
-Triggered via HTTP API (`/radialpulse`) or automatically every **10 minutes** (`kAutoRadialPulseIntervalMs = 600000`). A 3-second sonar-like ripple that expands from the center of the 19×15 grid outward. Three concentric rings with a subtle rainbow tint emanate outward, each staggered by 0.25 phase. When HTTP-triggered, pauses all animations and ends with warm-white fill. When auto-triggered, smoothly cross-fades from the current animation state to black (500ms), plays the ripple, then cross-fades back to the live animation state (1s).
+Triggered via HTTP API (`/radialpulse`) or automatically via the random queue scheduler. A 3-second sonar-like ripple that expands from the center of the 19×15 grid outward. Three concentric rings with a subtle rainbow tint emanate outward, each staggered by 0.25 phase. When HTTP-triggered, pauses all animations and ends with warm-white fill. When auto-triggered, smoothly cross-fades from the current animation state to black (500ms), plays the ripple, then cross-fades back to the live animation state (1s).
 
 ### Auto Sweep
 
-Automatically every **15 minutes** (`kAutoSweepIntervalMs = 900000`), a random sweep direction (from diagonal TL→BR, TR→BL, BR→TL, T→B, or B→T) washes warm white across the entire backglass. After a 1-second hold, the display cross-fades back to the live animation state (1.5s). This creates periodic dramatic visual moments without interrupting the normal flow.
+Triggered automatically via the random queue scheduler. A random sweep direction (from diagonal TL→BR, TR→BL, BR→TL, T→B, or B→T) washes warm white across the entire backglass. After a 1-second hold, the display cross-fades back to the live animation state (1.5s).
 
 ---
 
 ### Awakening Mode
 
-Triggered via HTTP API (`/awakening`) or automatically every **30 minutes** (`kAutoAwakeningIntervalMs = 1800000`). A 1-minute theatrical sequence where the bride comes alive. All other animations pause during this event (checked via `g_awakeningActive` flag). All LEDs start dark, then elements light up in stages:
+Triggered via HTTP API (`/awakening`) or automatically via the random queue scheduler. A 1-minute theatrical sequence where the bride comes alive. All other animations pause during this event (checked via `g_awakeningActive` flag). All LEDs start dark, then elements light up in stages:
 
 | Time | Phase | Description |
 |---|---|---|
@@ -259,6 +259,23 @@ Triggered via HTTP API (`/awakening`) or automatically every **30 minutes** (`kA
 | 40–50s | **Logo, Shuttle, Jackpot** | Machine logo ramps warm white. Shuttle flames flicker to life. Jackpot segments fill outward from center in warm orange/red |
 | 50–58s | **Street & Spotlights** | Street and car headlights fade in. Spotlights flicker on with fluorescent tube effect for the full 8 seconds (50–58s), probability of being on increases over time, then lock solid |
 | 58–60s | **Hold & Release** | All elements hold at full brightness, then normal animation resumes |
+
+---
+
+## Random Queue Scheduler
+
+Instead of fixed-interval timers, all auto-triggered special modes are managed by a centralized random queue scheduler running on Task 1. The pool of modes is:
+
+**Radial Pulse, Sweep, Jackpot Celebration, Awakening, Plasma, Rain, Breathing Grid, Spotlight Cone, Spatial Meteor** (9 total)
+
+**How it works:**
+1. A shuffled queue of all 9 modes is built (Fisher-Yates shuffle). Each mode plays once before any repeats.
+2. After each mode finishes, a random cooldown of **3–8 minutes** (`kSchedulerCooldownMinMs`–`kSchedulerCooldownMaxMs`) elapses before the next one fires.
+3. When the queue is exhausted, it reshuffles and starts over — ensuring variety.
+4. A **2-minute startup delay** (`kSchedulerStartupDelayMs`) prevents modes from firing immediately after boot.
+5. Jackpot and Awakening are triggered via their `Requested` flags so they still execute on their own FreeRTOS tasks (Task 3 and Task 2 respectively).
+6. Strip-1 effects (Plasma, Rain, Breathing Grid, Spotlight Cone, Spatial Meteor) use a generic auto-wrapper that snapshots the current state, cross-fades to black, runs the effect, then cross-fades back.
+7. HTTP-triggered modes still work independently at any time.
 
 ---
 
