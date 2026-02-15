@@ -135,26 +135,23 @@ namespace
     // Helper to map LED index → grid position (called once per LED at init)
     LedCoord BuildCoord(uint8_t idx)
     {
-        // --- Outer ring (0–51) ---
-        if (idx <=  18) return { idx,                       0 };           // top    L→R
-        if (idx <=  31) return { 18, (uint8_t)(idx - 18)       };           // right  T→B
-        if (idx <=  38) return { (uint8_t)(18 - (idx - 32)),  14 };         // bottom R→L
-        if (idx <=  51) return {  0, (uint8_t)(idx - 38)       };           // left   T→B
+        // --- Loop 1 (0–50): outer edge, clockwise ---
+        if (idx <=  18) return { idx,                            0 };  // top    L→R  row 0, x 0→18
+        if (idx <=  31) return { 18, (uint8_t)(idx - 18)            };  // right  T→B  col 18, y 1→13
+        if (idx <=  50) return { (uint8_t)(18 - (idx - 32)),    14 };  // bottom R→L  row 14, x 18→0
 
-        // --- Middle ring (52–85) ---
-        if (idx ==  52) return {  2, 12 };                                  // bottom-left connector
-        if (idx ==  53) return {  2, 11 };
-        if (idx <=  60) return {  2, (uint8_t)(10 - (idx - 54)) };          // left  B→T  (54→y10 … 60→y4)
-        if (idx <=  78) return { (uint8_t)(2 + (idx - 61)),  2 };           // top   L→R  (61→x2 … 78→x19 clamped to 16)
-        if (idx <=  85) return { 16, (uint8_t)(3 + (idx - 79)) };           // right T→B  (79→y3 … 85→y9)
+        // --- Loop 2 (51–85): middle edge ---
+        if (idx <=  61) return {  0, (uint8_t)(13 - (idx - 51))    };  // left   B→T  col 0,  y 13→3
+        if (idx <=  78) return { (uint8_t)(1 + (idx - 62)),      3 };  // top    L→R  row 3,  x 1→17
+        if (idx <=  85) return { 17, (uint8_t)(4 + (idx - 79))     };  // right  T→B  col 17, y 4→10
 
-        // --- Gap / bridge LEDs 86-98 (not on the diagram — place centrally) ---
-        if (idx <=  98) return { (uint8_t)(4 + (idx - 86)),  8 };           // rough horizontal mid-band
-
-        // --- Inner block (99–120) ---
-        if (idx <= 105) return {  4, (uint8_t)(10 - (idx - 99)) };          // left col B→T (99→y10 … 105→y4)
-        // 106–120: fills center L→R then wraps rows
-        return { (uint8_t)(5 + ((idx - 106) % 5)), (uint8_t)(4 + ((idx - 106) / 5)) };
+        // --- Loop 3 (86–120): inner block ---
+        if (idx <= 100) return { (uint8_t)(16 - (idx - 86)),   10 };  // bottom R→L  row 10, x 16→2
+        if (idx <= 105) return {  2, (uint8_t)(9 - (idx - 101))    };  // left   B→T  col 2,  y 9→5
+        if (idx <= 111) return { (uint8_t)(3 + (idx - 106)),     5 };  // top    L→R  row 5,  x 3→8
+        if (idx <= 113) return {  8, (uint8_t)(6 + (idx - 112))    };  // right  T→B  col 8,  y 6→7
+        // 114–120: inner row L→R  row 7, x 9→15
+        return { (uint8_t)(9 + (idx - 114)),                     7 };
     }
 
     constexpr uint8_t kGridCols = 19;
@@ -198,7 +195,7 @@ namespace
     // Ring depth: 0 = outer, 1 = middle, 2 = inner
     uint8_t LedRingDepth(uint8_t idx)
     {
-        if (idx <= 51)  return 0;
+        if (idx <= 50)  return 0;
         if (idx <= 85)  return 1;
         return 2;
     }
