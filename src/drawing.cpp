@@ -2762,18 +2762,20 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
     uint32_t lastAutoAwakening = millis();
     for (;;)
     {
+        // Check for awakening trigger BEFORE the allStopped guard so it
+        // works even when the system is paused after an HTTP effect.
+        if (g_awakeningRequested)
+        {
+            g_awakeningRequested = false;
+            g_allStopped = false;   // resume other tasks
+            RunAwakeningMode();
+            lastAutoAwakening = millis();
+        }
+
         if (g_allStopped)
         {
             PostDrawHandler();
             continue;
-        }
-
-        // Check for awakening trigger (API or auto)
-        if (g_awakeningRequested)
-        {
-            g_awakeningRequested = false;
-            RunAwakeningMode();
-            lastAutoAwakening = millis();
         }
 
         // Auto-awakening every 30 minutes
@@ -2809,18 +2811,21 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
     uint32_t lastAutoJackpot = millis();
     for (;;)
     {
+        // Check for jackpot trigger BEFORE the allStopped guard so it
+        // works even when the system is paused after an HTTP effect.
+        if (g_jackpotCelebrationRequested)
+        {
+            g_jackpotCelebrationRequested = false;
+            g_allStopped = false;   // resume other tasks
+            RunJackpotCelebration();
+            ResetJackpotRuntime(JackpotMode::Classic, millis());
+            lastAutoJackpot = millis();
+        }
+
         if (g_allStopped)
         {
             PostDrawHandler();
             continue;
-        }
-
-        if (g_jackpotCelebrationRequested)
-        {
-            g_jackpotCelebrationRequested = false;
-            RunJackpotCelebration();
-            ResetJackpotRuntime(JackpotMode::Classic, millis());
-            lastAutoJackpot = millis();
         }
 
         // Auto jackpot celebration every 10 minutes
