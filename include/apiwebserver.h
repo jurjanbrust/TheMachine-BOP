@@ -29,6 +29,9 @@ class ApiWebServer
         _server.on("/stop",           HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->stopAll(pRequest); });
         _server.on("/resume",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->resumeAll(pRequest); });
         _server.on("/sweep",          HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->sweep(pRequest); });
+        _server.on("/radialpulse",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->radialPulse(pRequest); });
+        _server.on("/plasma",          HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->plasma(pRequest); });
+        _server.on("/rain",            HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->rain(pRequest); });
 
         _server.begin();
         debugI("HTTP server started");
@@ -127,6 +130,33 @@ class ApiWebServer
         }
         debugI("Sweep triggered via API: dir=%u", dir);
         RunSweep(dir);
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void radialPulse(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Radial pulse triggered via API");
+        RunRadialPulse();
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void plasma(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Plasma triggered via API");
+        RunPlasma();
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void rain(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Rain triggered via API");
+        RunRain();
         AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);

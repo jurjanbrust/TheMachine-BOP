@@ -236,6 +236,16 @@ Four LEDs near the end of strip 0 — initialized to BlueViolet at startup, then
 
 ---
 
+### Radial Pulse
+
+Triggered via HTTP API (`/radialpulse`) or automatically every **10 minutes** (`kAutoRadialPulseIntervalMs = 600000`). A 3-second sonar-like ripple that expands from the center of the 19×15 grid outward. Three concentric rings with a subtle rainbow tint emanate outward, each staggered by 0.25 phase. When HTTP-triggered, pauses all animations and ends with warm-white fill. When auto-triggered, smoothly cross-fades from the current animation state to black (500ms), plays the ripple, then cross-fades back to the live animation state (1s).
+
+### Auto Sweep
+
+Automatically every **15 minutes** (`kAutoSweepIntervalMs = 900000`), a random sweep direction (from diagonal TL→BR, TR→BL, BR→TL, T→B, or B→T) washes warm white across the entire backglass. After a 1-second hold, the display cross-fades back to the live animation state (1.5s). This creates periodic dramatic visual moments without interrupting the normal flow.
+
+---
+
 ### Awakening Mode
 
 Triggered via HTTP API (`/awakening`) or automatically every **30 minutes** (`kAutoAwakeningIntervalMs = 1800000`). A 1-minute theatrical sequence where the bride comes alive. All other animations pause during this event (checked via `g_awakeningActive` flag). All LEDs start dark, then elements light up in stages:
@@ -254,7 +264,7 @@ Triggered via HTTP API (`/awakening`) or automatically every **30 minutes** (`kA
 
 ## Static Startup State
 
-On boot, both strips start fully dark (black). The Machine logo task begins in **Showcase** mode, which runs the 10-second fluorescent tube flicker sequence as the theatrical power-on reveal. After the flicker completes, the spotlights lock on, the logo and planets ramp up, and then a warm-white bottom-to-top sweep fills the entire backglass (all LEDs on the same row light simultaneously). Have a pause for 4 seconds. Once Showcase finishes, the normal mode rotation continues (Idle → Rainbow → ...), but is uses a smooth transition from the current colors instead of an abrupt switch.
+On boot, both strips start fully dark (black). The Machine logo task begins in **Showcase** mode, which runs the 10-second fluorescent tube flicker sequence as the theatrical power-on reveal. After the flicker completes, the spotlights lock on, the logo and planets ramp up, and then a warm-white diagonal sweep (bottom-right to top-left) fills the entire backglass. Have a pause for 4 seconds. Once Showcase finishes, the normal mode rotation continues (Idle → Rainbow → ...), but is uses a smooth transition from the current colors instead of an abrupt switch.
 
 ---
 
@@ -266,6 +276,10 @@ On boot, both strips start fully dark (black). The Machine logo task begins in *
 | `/setbrightness` | GET | `value` (0–255) | Sets global brightness and persists to NVS flash |
 | `/jackpot` | GET | *(none)* | Triggers a 5-second jackpot win celebration on the jackpot ring |
 | `/awakening` | GET | *(none)* | Triggers the 1-minute Awakening sequence — bride comes alive |
+| `/stop` | GET | *(none)* | Stops all animations, turns off all LEDs |
+| `/resume` | GET | *(none)* | Resumes normal animation after stop |
+| `/sweep` | GET | `dir` (0–8) | Spatial sweep fill: 0=L→R, 1=R→L, 2=T→B, 3=B→T, 4=outer→inner, 5=inner→outer, 6=diag TL→BR, 7=diag TR→BL, 8=diag BR→TL |
+| `/radialpulse` | GET | *(none)* | Sonar-like ripple expanding from center of grid outward (3 concentric rings with rainbow tint) |
 
 ---
 

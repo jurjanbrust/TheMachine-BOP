@@ -65,6 +65,8 @@ namespace
     constexpr uint32_t kSpotlightWashCycleMs        = 10000;
     constexpr uint32_t kAwakeningDurationMs          = 60000; // 1 minute total
     constexpr uint32_t kAutoAwakeningIntervalMs       = 1800000; // 30 minutes
+    constexpr uint32_t kAutoRadialPulseIntervalMs     = 600000;  // 10 minutes
+    constexpr uint32_t kAutoSweepIntervalMs           = 900000;  // 15 minutes
 
     constexpr uint8_t kPlanetIndices[kPlanetCount] = {
         moonTopLeft,
@@ -108,6 +110,9 @@ namespace
     volatile bool g_allStopped = false;
     volatile bool g_sweepRequested = false;
     volatile uint8_t g_sweepDirection = 0;
+    volatile bool g_radialPulseRequested = false;
+    volatile bool g_plasmaRequested = false;
+    volatile bool g_rainRequested = false;
 
     const CRGB kSpotlightColor = CRGB::White;
 
@@ -210,7 +215,10 @@ namespace
         TopToBottom,
         BottomToTop,
         OuterToInner,
-        InnerToOuter
+        InnerToOuter,
+        DiagTLtoBR,
+        DiagTRtoBL,
+        DiagBRtoTL
     };
 
     // Returns a sort-key for the given LED in the requested direction.
@@ -226,6 +234,9 @@ namespace
             case SweepDirection::BottomToTop:   return  kGridRows - 1 - c.y;
             case SweepDirection::OuterToInner:  return  LedRingDepth(idx);
             case SweepDirection::InnerToOuter:  return  2 - LedRingDepth(idx);
+            case SweepDirection::DiagTLtoBR:    return  c.x + c.y;
+            case SweepDirection::DiagTRtoBL:    return  (kGridCols - 1 - c.x) + c.y;
+            case SweepDirection::DiagBRtoTL:    return  (kGridCols - 1 - c.x) + (kGridRows - 1 - c.y);
         }
         return 0;
     }
@@ -347,8 +358,7 @@ namespace
         FastLED.show();
 
         // Strip 1: sweep bottom-to-top with warm white
-        SweepFill(CRGB(246, 200, 160), SweepDirection::BottomToTop, 2000, 3);
-        delay(400);
+        SweepFill(CRGB(246, 200, 160), SweepDirection::DiagBRtoTL, 2000, 3);
 
         // Fade out before handing off to Showcase
         for (uint8_t fade = 255; fade > 0; fade -= 5)
@@ -949,7 +959,7 @@ namespace
                 for (uint8_t i = 0; i < kPlanetCount; ++i)
                     leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
 
-                SweepFill(CRGB(246, 200, 160), SweepDirection::BottomToTop, 2000, 3);
+                SweepFill(CRGB(246, 200, 160), SweepDirection::DiagBRtoTL, 2000, 3);
                 delay(4000);  // hold the fully-lit state for 4 seconds
                 g_showcaseActive = false;
                 advanceStage(3);
@@ -2019,6 +2029,298 @@ void RunSweep(uint8_t direction)
     g_sweepRequested = true;
 }
 
+// -----------------------------------------------------------------------
+// Radial Pulse — sonar-like ripple emanating from center of the grid
+// -----------------------------------------------------------------------
+void RunRadialPulse()
+{
+    g_radialPulseRequested = true;
+}
+
+void RunPlasma()
+{
+    g_plasmaRequested = true;
+}
+
+void RunRain()
+{
+    g_rainRequested = true;
+}
+
+namespace
+{
+    // -----------------------------------------------------------------------
+    // Radial pulse rendering — used by both HTTP and auto triggers
+    // -----------------------------------------------------------------------
+    void RunRadialPulseEffect()
+    {
+        // Pre-compute distance from center for each LED
+        constexpr float cx = (kGridCols - 1) / 2.0f;  // 9.0
+        constexpr float cy = (kGridRows - 1) / 2.0f;  // 7.0
+        float dist[NUM_LEDS1];
+        float maxDist = 0;
+        for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+        {
+            float dx = kLedCoords[i].x - cx;
+            float dy = kLedCoords[i].y - cy;
+            dist[i] = sqrtf(dx * dx + dy * dy);
+            if (dist[i] > maxDist) maxDist = dist[i];
+        }
+
+        const uint32_t totalMs = 3000;
+        const float ringWidth = 2.5f;
+        const uint8_t numRipples = 3;
+        const uint32_t startTime = millis();
+
+        while (millis() - startTime < totalMs)
+        {
+            float progress = (float)(millis() - startTime) / totalMs;
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            for (uint8_t r = 0; r < numRipples; ++r)
+            {
+                float rippleProgress = progress - (r * 0.25f);
+                if (rippleProgress < 0.0f || rippleProgress > 1.0f) continue;
+
+                float ringPos = rippleProgress * (maxDist + ringWidth * 2);
+                uint8_t rippleBright = (r == 0) ? 255 : (r == 1) ? 160 : 100;
+
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    float delta = fabsf(dist[i] - ringPos);
+                    if (delta < ringWidth)
+                    {
+                        uint8_t bri = (uint8_t)((1.0f - delta / ringWidth) * rippleBright);
+                        uint8_t hue = (uint8_t)(dist[i] * 12);
+                        CRGB c = CHSV(hue, 80, bri);
+                        leds1[i] += c;
+                    }
+                }
+            }
+            FastLED.show();
+            delay(16);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Cross-fade strip 1 from snapshot back to live animations over durationMs
+    // -----------------------------------------------------------------------
+    void CrossFadeFromSnapshot(CRGB * snapshot, uint32_t durationMs)
+    {
+        const uint32_t fadeStart = millis();
+        while (millis() - fadeStart < durationMs)
+        {
+            uint8_t blendAmt = (uint8_t)(((millis() - fadeStart) * 255) / durationMs);
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                leds1[i] = blend(snapshot[i], leds1[i], blendAmt);
+            FastLED.show();
+            delay(16);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto-triggered radial pulse with smooth cross-fade transitions
+    // -----------------------------------------------------------------------
+    void RunAutoRadialPulse()
+    {
+        // Snapshot current state
+        CRGB snapshotBefore[NUM_LEDS1];
+        memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
+
+        // Cross-fade from current to black (500ms)
+        const uint32_t dimStart = millis();
+        while (millis() - dimStart < 500)
+        {
+            uint8_t blendAmt = (uint8_t)(((millis() - dimStart) * 255) / 500);
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                leds1[i] = blend(snapshotBefore[i], CRGB::Black, blendAmt);
+            FastLED.show();
+            delay(16);
+        }
+
+        // Run the radial pulse
+        RunRadialPulseEffect();
+
+        // Cross-fade from warm-white back to previous state (1s)
+        CRGB snapshotAfter[NUM_LEDS1];
+        fill_solid(snapshotAfter, NUM_LEDS1, CRGB(246, 200, 160));
+        memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
+        CrossFadeFromSnapshot(snapshotAfter, 1000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto-triggered sweep overlay with smooth cross-fade transitions
+    // -----------------------------------------------------------------------
+    void RunAutoSweep()
+    {
+        // Pick a random diagonal direction
+        static const SweepDirection kAutoSweepDirs[] = {
+            SweepDirection::DiagTLtoBR,
+            SweepDirection::DiagTRtoBL,
+            SweepDirection::DiagBRtoTL,
+            SweepDirection::TopToBottom,
+            SweepDirection::BottomToTop
+        };
+        SweepDirection dir = kAutoSweepDirs[random(0, 5)];
+
+        // Snapshot current state
+        CRGB snapshotBefore[NUM_LEDS1];
+        memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
+
+        // Run sweep fill (overwrites leds1)
+        SweepFill(CRGB(246, 200, 160), dir, 2000, 3);
+
+        // Hold for 1 second
+        delay(1000);
+
+        // Cross-fade from warm white back to live state (1.5s)
+        CRGB snapshotSweep[NUM_LEDS1];
+        memcpy(snapshotSweep, leds1, sizeof(snapshotSweep));
+        memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
+        CrossFadeFromSnapshot(snapshotSweep, 1500);
+    }
+
+    // -----------------------------------------------------------------------
+    // Spatial Plasma / Lava Lamp — 2D sine-wave color blobs using grid coords
+    // Runs for durationMs, writing directly to leds1.
+    // -----------------------------------------------------------------------
+    void RunPlasmaEffect(uint32_t durationMs = 10000)
+    {
+        const uint32_t startTime = millis();
+        while (millis() - startTime < durationMs)
+        {
+            float t = (millis() - startTime) / 1000.0f; // seconds
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                float x = kLedCoords[i].x / (float)kGridCols;
+                float y = kLedCoords[i].y / (float)kGridRows;
+
+                // Overlapping sine waves at different frequencies and phases
+                float v1 = sinf(x * 10.0f + t * 1.2f);
+                float v2 = sinf(y * 8.0f + t * 0.9f);
+                float v3 = sinf((x + y) * 6.0f + t * 1.5f);
+                float v4 = sinf(sqrtf(x * x + y * y) * 12.0f - t * 1.1f);
+                float v = (v1 + v2 + v3 + v4) / 4.0f; // -1 to 1
+
+                uint8_t hue = (uint8_t)((v + 1.0f) * 127.5f); // 0–255
+                uint8_t bri = (uint8_t)(180 + 75 * sinf(v * 3.14159f));
+                leds1[i] = CHSV(hue, 220, bri);
+            }
+            FastLED.show();
+            delay(20);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Rain — drops of light falling top to bottom in random columns
+    // -----------------------------------------------------------------------
+    void RunRainEffect(uint32_t durationMs = 10000)
+    {
+        // Build a lookup: for each column x, store a list of LED indices sorted by y
+        // Max LEDs per column is kGridRows (15)
+        struct ColEntry { uint8_t ledIdx; uint8_t y; };
+        ColEntry colLeds[kGridCols][kGridRows];
+        uint8_t  colCount[kGridCols];
+        memset(colCount, 0, sizeof(colCount));
+
+        for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+        {
+            uint8_t cx = kLedCoords[i].x;
+            uint8_t cy = kLedCoords[i].y;
+            if (cx < kGridCols && colCount[cx] < kGridRows)
+            {
+                uint8_t pos = colCount[cx]++;
+                colLeds[cx][pos] = { i, cy };
+            }
+        }
+        // Sort each column by y (insertion sort)
+        for (uint8_t c = 0; c < kGridCols; ++c)
+        {
+            for (uint8_t j = 1; j < colCount[c]; ++j)
+            {
+                ColEntry tmp = colLeds[c][j];
+                int8_t k = j - 1;
+                while (k >= 0 && colLeds[c][k].y > tmp.y)
+                {
+                    colLeds[c][k + 1] = colLeds[c][k];
+                    --k;
+                }
+                colLeds[c][k + 1] = tmp;
+            }
+        }
+
+        // Rain state: active drops
+        struct Drop
+        {
+            uint8_t col;       // which column
+            int8_t  pos;       // current row index within that column
+            uint8_t hue;       // color
+            bool    active;
+        };
+        constexpr uint8_t kMaxDrops = 12;
+        Drop drops[kMaxDrops];
+        memset(drops, 0, sizeof(drops));
+
+        // Brightness trail buffer per LED
+        uint8_t trail[NUM_LEDS1];
+        memset(trail, 0, sizeof(trail));
+
+        const uint32_t startTime = millis();
+        while (millis() - startTime < durationMs)
+        {
+            // Spawn new drops randomly
+            for (uint8_t d = 0; d < kMaxDrops; ++d)
+            {
+                if (!drops[d].active && random(0, 100) < 15) // ~15% chance per frame
+                {
+                    drops[d].col = random(0, kGridCols);
+                    drops[d].pos = 0;
+                    drops[d].hue = random(140, 180); // cyan-blue range
+                    drops[d].active = true;
+                    break; // only spawn one per frame
+                }
+            }
+
+            // Advance drops
+            for (uint8_t d = 0; d < kMaxDrops; ++d)
+            {
+                if (!drops[d].active) continue;
+                uint8_t c = drops[d].col;
+                int8_t p = drops[d].pos;
+
+                if (p < (int8_t)colCount[c])
+                {
+                    // Light the current LED
+                    uint8_t ledIdx = colLeds[c][p].ledIdx;
+                    trail[ledIdx] = 255;
+                }
+
+                drops[d].pos++;
+                if (drops[d].pos >= (int8_t)colCount[c])
+                    drops[d].active = false;
+            }
+
+            // Render trails
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                if (trail[i] > 0)
+                {
+                    leds1[i] = CHSV(160, 180, trail[i]); // cool blue-cyan
+                    // Decay trail
+                    trail[i] = scale8(trail[i], 180);
+                    if (trail[i] < 8) trail[i] = 0;
+                }
+                else
+                {
+                    leds1[i] = CRGB::Black;
+                }
+            }
+
+            FastLED.show();
+            delay(80); // drop speed
+        }
+    }
+} // namespace
 // shuttle flames
 void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 {
@@ -2027,6 +2329,8 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
     uint32_t lastSparkleUpdate = millis();
     StreetMode currentStreetMode = StreetMode::Pulse;
     uint32_t lastStreetModeChange = millis();
+    uint32_t lastAutoRadialPulse = millis();
+    uint32_t lastAutoSweep = millis();
 
     for (;;)
     {
@@ -2046,11 +2350,57 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
                 case 3: dir = SweepDirection::BottomToTop;   break;
                 case 4: dir = SweepDirection::OuterToInner;  break;
                 case 5: dir = SweepDirection::InnerToOuter;  break;
+                case 6: dir = SweepDirection::DiagTLtoBR;    break;
+                case 7: dir = SweepDirection::DiagTRtoBL;    break;
+                case 8: dir = SweepDirection::DiagBRtoTL;    break;
                 default: dir = SweepDirection::LeftToRight;  break;
             }
             SweepFill(CRGB(246, 200, 160), dir, 2000, 3);
 
             // Stay paused so sweep result is visible; /resume to continue
+            continue;
+        }
+
+        // Handle radial pulse requests (HTTP-triggered — pauses after)
+        if (g_radialPulseRequested)
+        {
+            g_radialPulseRequested = false;
+            g_allStopped = true;
+            delay(20);
+
+            RunRadialPulseEffect();
+
+            // Final: all LEDs at warm white
+            fill_solid(leds1, NUM_LEDS1, CRGB(246, 200, 160));
+            FastLED.show();
+
+            // Stay paused so result is visible; /resume to continue
+            continue;
+        }
+
+        // Handle plasma requests (HTTP-triggered — pauses after)
+        if (g_plasmaRequested)
+        {
+            g_plasmaRequested = false;
+            g_allStopped = true;
+            delay(20);
+
+            RunPlasmaEffect(10000);
+
+            // Stay paused so result is visible; /resume to continue
+            continue;
+        }
+
+        // Handle rain requests (HTTP-triggered — pauses after)
+        if (g_rainRequested)
+        {
+            g_rainRequested = false;
+            g_allStopped = true;
+            delay(20);
+
+            RunRainEffect(10000);
+
+            // Stay paused so result is visible; /resume to continue
             continue;
         }
 
@@ -2089,6 +2439,29 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         RunStreetMode(currentStreetMode);
         RunShuttleMode(currentMode, now - lastModeChange);
         BreathingEyes();
+
+        // Auto-trigger radial pulse every 10 minutes
+        if (now - lastAutoRadialPulse >= kAutoRadialPulseIntervalMs)
+        {
+            lastAutoRadialPulse = now;
+            if (!g_showcaseActive && !g_awakeningActive && !g_globalHeartActive)
+            {
+                debugI("Auto radial pulse triggered");
+                RunAutoRadialPulse();
+            }
+        }
+
+        // Auto-trigger sweep every 15 minutes (offset from radial pulse)
+        if (now - lastAutoSweep >= kAutoSweepIntervalMs)
+        {
+            lastAutoSweep = now;
+            if (!g_showcaseActive && !g_awakeningActive && !g_globalHeartActive)
+            {
+                debugI("Auto sweep triggered");
+                RunAutoSweep();
+            }
+        }
+
         PostDrawHandler();
     }
 }

@@ -1,6 +1,5 @@
 GET http://192.168.10.99/stop
 
-
 ### Sweep Left to Right
 GET http://192.168.10.99/sweep?dir=0
 
@@ -18,3 +17,15 @@ GET http://192.168.10.99/sweep?dir=4
 
 ### Sweep Inner to Outer
 GET http://192.168.10.99/sweep?dir=5
+
+### Sweep Diagonal TL to BR
+GET http://192.168.10.99/sweep?dir=6
+
+### Sweep Diagonal TR to BL
+GET http://192.168.10.99/sweep?dir=7
+
+### Sweep Diagonal BR to TL
+GET http://192.168.10.99/sweep?dir=8
+
+### Radial Pulse
+GET http://192.168.10.99/radialpulse
