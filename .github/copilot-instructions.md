@@ -112,7 +112,7 @@ for its full duration.
 
 ### The Machine Logo Modes (`MachineMode`)
 
-Cycles through active modes, with an **Idle** rest period between each. Each active mode runs for 30 seconds, then Idle for 2 minutes, then the next active mode.
+Cycles through active modes, with an **Idle** rest period between each. Each active mode runs for 60 seconds, then Idle for 2 minutes, then the next active mode.
 
 | Mode | Description |
 |---|---|
@@ -130,7 +130,7 @@ Cycles through active modes, with an **Idle** rest period between each. Each act
 
 ### Jackpot Ring Modes (`JackpotMode`)
 
-The jackpot ring (48 LEDs on strip 0) cycles through animation modes. Most modes run for 15 seconds; DimmedHold runs for 60 seconds. Output is dimmed (scaled to 80/255) when `dimOutput` is true or during Showcase.
+The jackpot ring (48 LEDs on strip 0) cycles through animation modes. Most modes run for 43 seconds; DimmedHold runs for 90 seconds. Output is dimmed (scaled to 80/255) when `dimOutput` is true or during Showcase.
 Artwork segments are addressed in visible order 1→8 using
 `kJackpotVisualToPhysical = {7,6,5,4,3,2,1,0}`; do not assume physical strip
 order matches the numbered ladder.
@@ -157,14 +157,14 @@ and openings, while eyes and heart remain immediately responsive.
 
 ### Shuttle Flame Modes (`ShuttleMode`)
 
-Three LEDs (indices 55–57) simulate the shuttle's engine exhaust. Each mode runs for 15 seconds, except Launch which runs for ~11.5 seconds.
+Three LEDs (indices 55–57) simulate the shuttle's engine exhaust. Each mode runs for 37 seconds. Launch uses a deliberately slow 15-second ignition, 3-second hold, 7-second fade and 12-second dark pause.
 
 | Mode | Description |
 |---|---|
 | **Flicker** | Randomized warm-orange flame flicker (hue 10–18, high saturation, random brightness 160–255) |
 | **Wave** | Smooth sinusoidal color wave with warm orange tones flowing across the 3 LEDs |
 | **Boost** | Pulsing blend from white to orange simulating engine boost (18 BPM) |
-| **Launch** | Simulated launch sequence: 5-second ignition ramp from dim red through orange to white-hot, 1.5-second peak hold with flicker, 2-second fade-out as shuttle "flies away", then 3-second dark pause before repeating |
+| **Launch** | Slow launch sequence: 15-second ignition ramp from dim red through orange to white-hot, 3-second peak hold with flicker, 7-second fade-out as the shuttle flies away, then a 12-second dark pause |
 
 **Rotation order:** Flicker → Wave → Boost → Launch → (repeat)
 
@@ -172,7 +172,7 @@ Three LEDs (indices 55–57) simulate the shuttle's engine exhaust. Each mode ru
 
 ### Street Scene Modes (`StreetMode`)
 
-The 5 street LEDs (people + 4 cars) cycle through modes every 12 seconds.
+The 5 street LEDs (people + 4 cars) cycle through modes every 29 seconds.
 
 | Mode | Description |
 |---|---|
@@ -208,7 +208,7 @@ After completion, the jackpot ring resets to Classic mode and resumes normal rot
 
 ### Bride Animation Modes (`BrideMode`)
 
-The 33 bride-outline LEDs (scattered across strip 1) alternate between two animation modes, each running for 20 seconds. Driven by `UpdateBrideAnimation()` in the shuttle task loop.
+The 33 bride-outline LEDs (scattered across strip 1) alternate between two animation modes, each running for 53 seconds. Driven by `UpdateBrideAnimation()` in the shuttle task loop.
 
 | Mode | Description |
 |---|---|
@@ -298,7 +298,7 @@ Storm, Multiball, Spotlight Cone, Spatial Meteor, Crimson Takeover** (10 total)
 
 **How it works:**
 1. A shuffled queue of all 10 modes is built (Fisher-Yates shuffle). Each mode plays once before any repeats.
-2. After each mode finishes, a random cooldown of **3–8 minutes** (`kSchedulerCooldownMinMs`–`kSchedulerCooldownMaxMs`) elapses before the next one fires.
+2. After each mode finishes, a random cooldown of **5–10 minutes** (`kSchedulerCooldownMinMs`–`kSchedulerCooldownMaxMs`) elapses before the next one fires.
 3. When the queue is exhausted, it reshuffles and starts over — ensuring variety.
 4. A **2-minute startup delay** (`kSchedulerStartupDelayMs`) prevents modes from firing immediately after boot.
 5. Jackpot and Awakening are triggered via their `Requested` flags so they still execute on their own FreeRTOS tasks (Task 3 and Task 2 respectively).
@@ -308,6 +308,12 @@ Storm, Multiball, Spotlight Cone, Spatial Meteor, Crimson Takeover** (10 total)
 7. Rain and Breathing Grid remain available manually but are intentionally
    excluded from automatic rotation.
 8. HTTP-triggered modes still work independently at any time.
+
+Generic automatically scheduled spatial effects run for 15 seconds. Normal
+Street, Shuttle and Bride mode changes cross-fade their own artwork zones over
+750 ms. Their 29/37/53-second durations are intentionally staggered so changes
+rarely occur together. Machine modes run for 60 seconds and jackpot modes for
+43 seconds.
 
 ---
 

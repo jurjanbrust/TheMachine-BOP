@@ -112,6 +112,38 @@ class LedLayoutTests(unittest.TestCase):
             self.assertIsNotNone(match, name)
             self.assertGreaterEqual(int(match.group(1)), 300, name)
 
+    def test_ambient_modes_use_staggered_long_durations(self):
+        source = DRAWING_SOURCE.read_text()
+        expected = {
+            "kStreetModeDurationMs": 29000,
+            "kShuttleModeDurationMs": 37000,
+            "kJackpotModeDurationMs": 43000,
+            "kBrideModeDurationMs": 53000,
+            "kMachineActiveDurationMs": 60000,
+        }
+        for name, duration in expected.items():
+            match = re.search(rf"{name}\s*=\s*(\d+)", source)
+            self.assertIsNotNone(match, name)
+            self.assertEqual(int(match.group(1)), duration, name)
+        self.assertEqual(len(set(expected.values())), len(expected))
+
+    def test_zone_changes_use_750ms_crossfades(self):
+        source = DRAWING_SOURCE.read_text()
+        self.assertRegex(
+            source, r"kZoneCrossfadeDurationMs\s*=\s*750")
+        self.assertIn("CaptureZoneSnapshot(", source)
+        self.assertIn("ApplyZoneCrossfade(", source)
+
+    def test_automatic_effects_have_calm_cadence(self):
+        source = DRAWING_SOURCE.read_text()
+        expected = {
+            "kAutoEffectDurationMs": 15000,
+            "kSchedulerCooldownMinMs": 300000,
+            "kSchedulerCooldownMaxMs": 600000,
+        }
+        for name, value in expected.items():
+            self.assertRegex(source, rf"{name}\s*=\s*{value}")
+
     def test_network_startup_is_backgrounded(self):
         source = MAIN_SOURCE.read_text()
         setup = source[source.index("void setup()"):source.index("void loop()")]

@@ -15,7 +15,7 @@ namespace
 {
     constexpr uint16_t kGlobalHeartIntervalSeconds = 300;   // 5 minutes
     constexpr uint32_t kGlobalHeartDurationMs      = 15000;  // run heartbeat for 15s
-    constexpr uint32_t kMachineActiveDurationMs    = 30000;  // active mode: 30 seconds
+    constexpr uint32_t kMachineActiveDurationMs    = 60000;  // active mode: 60 seconds
     constexpr uint32_t kMachineIdleDurationMs      = 120000; // idle pause: 2 minutes
     constexpr uint8_t  kMachineLedCount            = theMachineLastLed - theMachineFirstLed + 1;
     constexpr uint8_t  kJackpotSegments            = 8;
@@ -25,8 +25,8 @@ namespace
         7, 6, 5, 4, 3, 2, 1, 0
     }; // visible labels 1 through 8
     constexpr uint8_t  kJackpotDimScale            = 80;
-    constexpr uint32_t kJackpotModeDurationMs      = 15000;
-    constexpr uint32_t kJackpotDimmedDurationMs    = 60000;
+    constexpr uint32_t kJackpotModeDurationMs      = 43000;
+    constexpr uint32_t kJackpotDimmedDurationMs    = 90000;
     constexpr uint32_t kJackpotClassicIntervalMs   = 500;
     constexpr uint32_t kJackpotFillIntervalMs      = 450;
     constexpr uint32_t kJackpotChaseIntervalMs     = 400;
@@ -41,17 +41,17 @@ namespace
     constexpr uint8_t  kPlanetSparkleDecay         = 220;
     constexpr uint8_t  kShuttleFirstLed            = 55;
     constexpr uint8_t  kShuttleLedCount            = 3;
-    constexpr uint32_t kShuttleModeDurationMs      = 15000;
+    constexpr uint32_t kShuttleModeDurationMs      = 37000;
     constexpr uint8_t  kStreetLedCount             = 5;
-    constexpr uint32_t kStreetModeDurationMs       = 12000;
+    constexpr uint32_t kStreetModeDurationMs       = 29000;
     constexpr uint32_t kStreetRunnerIntervalMs     = 120;
     constexpr uint8_t  kStreetSparkleDecay         = 210;
     constexpr uint32_t kCarBlinkIntervalMs         = 800;
     constexpr uint8_t  kEyeBreathBpm              = 10;
-    constexpr uint32_t kShuttleLaunchRampMs        = 5000;
-    constexpr uint32_t kShuttleLaunchHoldMs        = 1500;
-    constexpr uint32_t kShuttleLaunchFadeMs        = 2000;
-    constexpr uint32_t kShuttleLaunchPauseMs       = 3000;
+    constexpr uint32_t kShuttleLaunchRampMs        = 15000;
+    constexpr uint32_t kShuttleLaunchHoldMs        = 3000;
+    constexpr uint32_t kShuttleLaunchFadeMs        = 7000;
+    constexpr uint32_t kShuttleLaunchPauseMs       = 12000;
     constexpr uint32_t kShuttleLaunchTotalMs       = kShuttleLaunchRampMs + kShuttleLaunchHoldMs + kShuttleLaunchFadeMs + kShuttleLaunchPauseMs;
     constexpr uint32_t kShowcaseDimDurationMs      = 2500;
     constexpr uint32_t kShowcaseRampDurationMs     = 2000;
@@ -63,7 +63,8 @@ namespace
     constexpr uint32_t kMeteorShowerIntervalMs     = 1200000; // 20 minutes
     constexpr uint8_t  kMeteorShowerLength          = 6;
     constexpr uint8_t  kMeteorShowerTrailDecay      = 64;
-    constexpr uint32_t kBrideModeDurationMs         = 20000;
+    constexpr uint32_t kBrideModeDurationMs         = 53000;
+    constexpr uint32_t kZoneCrossfadeDurationMs     = 750;
     constexpr uint8_t  kBrideLedCount               = 33;
     constexpr uint32_t kJackpotCelebrationRainbowMs = 2000;
     constexpr uint32_t kJackpotCelebrationCascadeMs = 4800;
@@ -77,9 +78,10 @@ namespace
     // -----------------------------------------------------------------------
     // Random-queue scheduler for auto-triggered special modes
     // -----------------------------------------------------------------------
-    constexpr uint32_t kSchedulerCooldownMinMs  = 180000;  // 3 minutes min between modes
-    constexpr uint32_t kSchedulerCooldownMaxMs  = 480000;  // 8 minutes max between modes
+    constexpr uint32_t kSchedulerCooldownMinMs  = 300000;  // 5 minutes min between modes
+    constexpr uint32_t kSchedulerCooldownMaxMs  = 600000;  // 10 minutes max between modes
     constexpr uint32_t kSchedulerStartupDelayMs = 120000;  // 2 minutes grace period after boot
+    constexpr uint32_t kAutoEffectDurationMs     = 15000;
 
     enum class SpecialMode : uint8_t
     {
@@ -144,6 +146,12 @@ namespace
         carright2,
         carleft1,
         carleft2
+    };
+
+    constexpr uint8_t kShuttleIndices[kShuttleLedCount] = {
+        kShuttleFirstLed,
+        kShuttleFirstLed + 1,
+        kShuttleFirstLed + 2
     };
 
     constexpr uint8_t kBrideIndices[kBrideLedCount] = {
@@ -472,6 +480,39 @@ namespace
     BrideMode g_brideMode = BrideMode::Aurora;
     uint32_t g_brideModeStart = 0;
     uint8_t g_brideStarfieldBrightness[kBrideLedCount] = {};
+    CRGB g_brideTransitionFrom[kBrideLedCount] = {};
+    uint32_t g_brideTransitionStart = 0;
+    bool g_brideTransitionActive = false;
+
+    void CaptureZoneSnapshot(const uint8_t * indices,
+                             uint8_t count,
+                             CRGB * snapshot)
+    {
+        for (uint8_t i = 0; i < count; ++i)
+            snapshot[i] = leds1[indices[i]];
+    }
+
+    void ApplyZoneCrossfade(const uint8_t * indices,
+                            uint8_t count,
+                            const CRGB * snapshot,
+                            uint32_t transitionStart,
+                            bool & active)
+    {
+        if (!active)
+            return;
+
+        const uint32_t elapsed = millis() - transitionStart;
+        if (elapsed >= kZoneCrossfadeDurationMs)
+        {
+            active = false;
+            return;
+        }
+
+        const uint8_t amount = static_cast<uint8_t>(
+            (elapsed * 255UL) / kZoneCrossfadeDurationMs);
+        for (uint8_t i = 0; i < count; ++i)
+            leds1[indices[i]] = blend(snapshot[i], leds1[indices[i]], amount);
+    }
 
 
     void UpdatePlanetSparkles()
@@ -836,9 +877,13 @@ namespace
 
         if (now - g_brideModeStart >= kBrideModeDurationMs)
         {
+            CaptureZoneSnapshot(
+                kBrideIndices, kBrideLedCount, g_brideTransitionFrom);
             g_brideMode = static_cast<BrideMode>(
                 (static_cast<uint8_t>(g_brideMode) + 1) % static_cast<uint8_t>(BrideMode::Count));
             g_brideModeStart = now;
+            g_brideTransitionStart = now;
+            g_brideTransitionActive = true;
             memset(g_brideStarfieldBrightness, 0, sizeof(g_brideStarfieldBrightness));
         }
 
@@ -853,6 +898,10 @@ namespace
             default:
                 break;
         }
+
+        ApplyZoneCrossfade(
+            kBrideIndices, kBrideLedCount, g_brideTransitionFrom,
+            g_brideTransitionStart, g_brideTransitionActive);
     }
 
     // --- Meteor Shower across Strip 1 ---
@@ -1929,7 +1978,6 @@ namespace
             const uint8_t heat = random8(160, 255);
             segment[i] = CHSV(10 + random8(8), 255, heat);
         }
-        PublishLedFrame();
         delay(35);
     }
 
@@ -1943,7 +1991,6 @@ namespace
             segment[i] = CHSV(5 + wave / 6, 220, 150 + (wave >> 2));
         }
         offset += 6;
-        PublishLedFrame();
         delay(45);
     }
 
@@ -1958,7 +2005,6 @@ namespace
             heat.nscale8_video(pulse);
             segment[i] = blend(CRGB::White, heat, blendAmount);
         }
-        PublishLedFrame();
         delay(30);
     }
 
@@ -2015,7 +2061,6 @@ namespace
             fill_solid(segment, kShuttleLedCount, CRGB::Black);
         }
 
-        PublishLedFrame();
         delay(30);
     }
 
@@ -4190,7 +4235,8 @@ namespace
     // -----------------------------------------------------------------------
     // Generic auto-wrapper: snapshot → fade to black → run effect → fade back
     // -----------------------------------------------------------------------
-    void RunAutoEffect(void (*effectFn)(uint32_t), uint32_t durationMs = 10000)
+    void RunAutoEffect(void (*effectFn)(uint32_t),
+                       uint32_t durationMs = kAutoEffectDurationMs)
     {
         g_globalColorTakeoverActive = true;
         CRGB snapshotBefore[NUM_LEDS1];
@@ -4254,7 +4300,7 @@ namespace
                 RunAutoEffect(RunSpatialMeteorEffect);
                 break;
             case SpecialMode::CrimsonTakeover:
-                RunCrimsonTakeoverEffect(9000);
+                RunCrimsonTakeoverEffect(kAutoEffectDurationMs);
                 break;
             default:
                 break;
@@ -4270,6 +4316,12 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
     uint32_t lastSparkleUpdate = millis();
     StreetMode currentStreetMode = StreetMode::Pulse;
     uint32_t lastStreetModeChange = millis();
+    CRGB shuttleTransitionFrom[kShuttleLedCount] = {};
+    uint32_t shuttleTransitionStart = 0;
+    bool shuttleTransitionActive = false;
+    CRGB streetTransitionFrom[kStreetLedCount] = {};
+    uint32_t streetTransitionStart = 0;
+    bool streetTransitionActive = false;
 
     // Initialise the random-queue scheduler
     g_nextAutoModeTime = millis() + kSchedulerStartupDelayMs;
@@ -4619,14 +4671,22 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
             ? kShuttleLaunchTotalMs : kShuttleModeDurationMs;
         if (shuttleModeElapsed >= shuttleDuration)
         {
+            CaptureZoneSnapshot(
+                kShuttleIndices, kShuttleLedCount, shuttleTransitionFrom);
             currentMode = NextShuttleMode(currentMode);
             lastModeChange = now;
+            shuttleTransitionStart = now;
+            shuttleTransitionActive = true;
         }
 
         if (now - lastStreetModeChange >= kStreetModeDurationMs)
         {
+            CaptureZoneSnapshot(
+                kStreetIndices, kStreetLedCount, streetTransitionFrom);
             currentStreetMode = NextStreetMode(currentStreetMode);
             lastStreetModeChange = now;
+            streetTransitionStart = now;
+            streetTransitionActive = true;
         }
 
         if (now - lastSparkleUpdate >= kPlanetSparkleIntervalMs)
@@ -4640,7 +4700,13 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         UpdateBrideAnimation();
         UpdateMeteorShower();
         RunStreetMode(currentStreetMode);
+        ApplyZoneCrossfade(
+            kStreetIndices, kStreetLedCount, streetTransitionFrom,
+            streetTransitionStart, streetTransitionActive);
         RunShuttleMode(currentMode, now - lastModeChange);
+        ApplyZoneCrossfade(
+            kShuttleIndices, kShuttleLedCount, shuttleTransitionFrom,
+            shuttleTransitionStart, shuttleTransitionActive);
         BreathingEyes();
 
         // Random-queue scheduler: pick the next special mode when cooldown expires
@@ -4656,7 +4722,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
                 RunScheduledMode(mode);
             }
             // Schedule next mode (even if we skipped this one due to flags)
-            g_nextAutoModeTime = now + RandomCooldown();
+            g_nextAutoModeTime = millis() + RandomCooldown();
         }
 
         PostDrawHandler();
