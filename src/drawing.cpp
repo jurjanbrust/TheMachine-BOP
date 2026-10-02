@@ -27,14 +27,14 @@ namespace
     constexpr uint8_t  kJackpotDimScale            = 80;
     constexpr uint32_t kJackpotModeDurationMs      = 15000;
     constexpr uint32_t kJackpotDimmedDurationMs    = 60000;
-    constexpr uint32_t kJackpotClassicIntervalMs   = 220;
-    constexpr uint32_t kJackpotFillIntervalMs      = 180;
-    constexpr uint32_t kJackpotChaseIntervalMs     = 140;
-    constexpr uint32_t kJackpotMeteorIntervalMs    = 90;
-    constexpr uint32_t kJackpotRainbowIntervalMs   = 120;
+    constexpr uint32_t kJackpotClassicIntervalMs   = 500;
+    constexpr uint32_t kJackpotFillIntervalMs      = 450;
+    constexpr uint32_t kJackpotChaseIntervalMs     = 400;
+    constexpr uint32_t kJackpotMeteorIntervalMs    = 300;
+    constexpr uint32_t kJackpotRainbowIntervalMs   = 160;
     constexpr uint32_t kJackpotSparkleIntervalMs   = 110;
     constexpr uint32_t kJackpotPulseIntervalMs     = 100;
-    constexpr uint32_t kJackpotPlasmaIntervalMs    = 90;
+    constexpr uint32_t kJackpotPlasmaIntervalMs    = 140;
     constexpr uint32_t kJackpotDimmedIntervalMs    = 1000;
     constexpr uint8_t  kPlanetCount                = 5;
     constexpr uint16_t kPlanetSparkleIntervalMs    = 150;
@@ -65,7 +65,8 @@ namespace
     constexpr uint8_t  kMeteorShowerTrailDecay      = 64;
     constexpr uint32_t kBrideModeDurationMs         = 20000;
     constexpr uint8_t  kBrideLedCount               = 33;
-    constexpr uint32_t kJackpotCelebrationDurationMs = 5000;
+    constexpr uint32_t kJackpotCelebrationRainbowMs = 2000;
+    constexpr uint32_t kJackpotCelebrationCascadeMs = 4800;
     constexpr uint32_t kAwakeningDurationMs          = 60000; // 1 minute total
 
     uint8_t OpeningStageAmount(uint32_t elapsed, uint32_t start, uint32_t duration);
@@ -906,7 +907,8 @@ namespace
         const uint32_t start = millis();
 
         // Phase 1: Rapid rainbow flash (2 seconds)
-        while (millis() - start < 2000 && !g_sceneCancellationRequested)
+        while (millis() - start < kJackpotCelebrationRainbowMs &&
+               !g_sceneCancellationRequested)
         {
             const uint8_t hue = beat8(120);
             for (uint8_t i = 0; i < kJackpotLedCount; ++i)
@@ -920,11 +922,13 @@ namespace
         // Phase 2: Golden cascade fill with sparkle (3 seconds)
         const uint32_t phase2Start = millis();
         uint8_t filledSegments = 0;
-        while (millis() - phase2Start < 3000 && !g_sceneCancellationRequested)
+        while (millis() - phase2Start < kJackpotCelebrationCascadeMs &&
+               !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - phase2Start;
             const uint8_t targetSegments = static_cast<uint8_t>(
-                min(static_cast<uint32_t>(kJackpotSegments), (elapsed * kJackpotSegments) / 2500));
+                min(static_cast<uint32_t>(kJackpotSegments),
+                    (elapsed * kJackpotSegments) / 4000));
 
             // Fill new segments with gold
             while (filledSegments < targetSegments)
@@ -3201,7 +3205,7 @@ namespace
             for (uint8_t i = 0; i < visibleLetters; ++i)
                 leds1[theMachineFirstLed + i] = CRGB(246, 200, 160);
 
-            const uint8_t finale = stageAmount(elapsed, 7000, 2200);
+            const uint8_t finale = stageAmount(elapsed, 6800, 3200);
             for (uint8_t i = 0; i < kStreetLedCount; ++i)
                 setScaled(leds1[kStreetIndices[i]], CRGB(255, 170, 50), finale);
             setScaled(leds1[spotlights1], CRGB::White, finale);
@@ -3317,9 +3321,10 @@ namespace
             if (random8() < 35)
                 leds1[random8(NUM_LEDS1)] += CRGB::White;
 
-            if (elapsed >= 7000)
+            if (elapsed >= 6500)
             {
-                const uint8_t cascade = OpeningStageAmount(elapsed, 7000, 2200);
+                const uint8_t cascade =
+                    OpeningStageAmount(elapsed, 6500, 3000);
                 const uint8_t segments = static_cast<uint8_t>(
                     (cascade * kJackpotSegments) / 255);
                 for (uint8_t segment = 0; segment < segments; ++segment)
@@ -3648,7 +3653,8 @@ namespace
             {
                 fill_solid(leds0, NUM_LEDS0, CRGB::Black);
                 fill_solid(leds1, NUM_LEDS1, CRGB::Black);
-                const uint8_t reveal = OpeningStageAmount(elapsed, 5450, 1800);
+                const uint8_t reveal =
+                    OpeningStageAmount(elapsed, 5450, 3000);
 
                 const uint8_t litSegments = static_cast<uint8_t>(
                     (reveal * kJackpotSegments) / 255);

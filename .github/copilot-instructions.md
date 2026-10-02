@@ -137,17 +137,21 @@ order matches the numbered ladder.
 
 | Mode | Interval | Description |
 |---|---|---|
-| **Classic** | 220 ms | Single red-lit segment bounces back and forth across all 8 segments |
-| **AlternatingFill** | 180 ms | Segments fill one at a time cycling through DarkOrange → Gold → Red, then clear and repeat |
-| **DualChase** | 140 ms | Two LEDs (Cyan and Magenta) chase toward each other from opposite ends |
-| **Meteor** | 90 ms | A 5-LED DeepSkyBlue meteor with fading trail sweeps across the ring |
-| **RainbowSweep** | 120 ms | Continuous rainbow gradient scrolling around the ring |
+| **Classic** | 500 ms | Single red-lit segment bounces back and forth across all 8 segments |
+| **AlternatingFill** | 450 ms | Segments fill one at a time cycling through DarkOrange → Gold → Red, then clear and repeat |
+| **DualChase** | 400 ms | Two LEDs (Cyan and Magenta) chase toward each other from opposite ends |
+| **Meteor** | 300 ms | A 5-LED DeepSkyBlue meteor with fading trail sweeps across the ring |
+| **RainbowSweep** | 160 ms | Continuous rainbow gradient scrolling around the ring |
 | **Sparkle** | 110 ms | *(Currently commented out in code)* Random colorful sparkle bursts with fade |
 | **Pulse** | 100 ms | All LEDs pulse Gold using heartbeat curve (28 BPM) |
-| **Plasma** | 90 ms | Dual overlapping sine waves creating shifting plasma-like color patterns |
+| **Plasma** | 140 ms | Dual overlapping sine waves creating shifting plasma-like color patterns |
 | **DimmedHold** | 1000 ms | Static hold: first 4 segments DarkOrange, last 4 segments Red (60-second duration) |
 
 **Rotation order:** Classic → AlternatingFill → DualChase → Meteor → RainbowSweep → (Sparkle skipped) → Pulse → Plasma → DimmedHold → (repeat)
+
+The central LED renderer interpolates every change on jackpot LEDs 0–47 over
+roughly 300–350 ms. This applies to normal modes, celebrations, manual effects
+and openings, while eyes and heart remain immediately responsive.
 
 ---
 
@@ -193,10 +197,10 @@ The 5 planet LEDs (moon, blue planet left/right, Jupiter upper/lower) receive co
 
 ### Jackpot Win Celebration
 
-Triggered via HTTP API (`/jackpot`) or automatically via the random queue scheduler. Overrides normal jackpot animation for 5 seconds:
+Triggered via HTTP API (`/jackpot`) or automatically via the random queue scheduler. Overrides normal jackpot animation for about 7 seconds:
 
 1. **Rainbow Flash (2s):** Rapid rainbow hue cycling across all 48 jackpot LEDs at 120 BPM
-2. **Golden Cascade (3s):** Segments fill one by one with Gold, random white sparkles flash on filled LEDs then blend back to gold
+2. **Golden Cascade (4.8s):** Segments fill one by one with Gold, random white sparkles flash on filled LEDs then blend back to gold
 
 After completion, the jackpot ring resets to Classic mode and resumes normal rotation.
 
@@ -341,7 +345,7 @@ The opening pool is: Improved Fluorescent Showcase, Cosmic Alignment, Bride
 Assembly, Launch Control, City Awakening, System Diagnostics, Stellar
 Transmission, Pulse of Life and Moonlight Reveal. All openings can also be
 replayed using serial commands `11` through `19` or their HTTP endpoints.
-USB serial also accepts `stop`, `resume`, and `status`.
+USB serial also accepts `jackpot`, `stop`, `resume`, and `status`.
 
 ---
 
@@ -351,7 +355,7 @@ USB serial also accepts `stop`, `resume`, and `status`.
 |---|---|---|---|
 | `/setled` | GET | `index` (0–120) | Clears strip 1, then sets the specified LED to white |
 | `/setbrightness` | GET | `value` (0–255) | Sets global brightness and persists to NVS flash |
-| `/jackpot` | GET | *(none)* | Triggers a 5-second jackpot win celebration on the jackpot ring |
+| `/jackpot` | GET | *(none)* | Triggers a roughly 7-second jackpot win celebration on the jackpot ring |
 | `/awakening` | GET | *(none)* | Triggers the 1-minute Awakening sequence — bride comes alive |
 | `/stop` | GET | *(none)* | Stops all animations, turns off all LEDs |
 | `/resume` | GET | *(none)* | Resumes normal animation after stop |

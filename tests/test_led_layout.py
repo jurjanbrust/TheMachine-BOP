@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DRAWING_SOURCE = ROOT / "src" / "drawing.cpp"
 MAIN_SOURCE = ROOT / "src" / "main.cpp"
 API_HEADER = ROOT / "include" / "apiwebserver.h"
+RENDERER_SOURCE = ROOT / "src" / "ledrenderer.cpp"
 XLSX_LAYOUT = ROOT / "leds.xlsx"
 
 SHEET_NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -92,6 +93,24 @@ class LedLayoutTests(unittest.TestCase):
             if "FastLED.show()" in path.read_text():
                 direct_calls.append(path.name)
         self.assertEqual(direct_calls, [])
+
+    def test_jackpot_output_is_smoothed_centrally(self):
+        source = RENDERER_SOURCE.read_text()
+        self.assertIn("kJackpotBlendAmount", source)
+        self.assertIn("blend(", source)
+        self.assertIn("jackpotTarget", source)
+
+    def test_positional_jackpot_modes_have_calm_intervals(self):
+        source = DRAWING_SOURCE.read_text()
+        for name in (
+            "kJackpotClassicIntervalMs",
+            "kJackpotFillIntervalMs",
+            "kJackpotChaseIntervalMs",
+            "kJackpotMeteorIntervalMs",
+        ):
+            match = re.search(rf"{name}\s*=\s*(\d+)", source)
+            self.assertIsNotNone(match, name)
+            self.assertGreaterEqual(int(match.group(1)), 300, name)
 
     def test_network_startup_is_backgrounded(self):
         source = MAIN_SOURCE.read_text()

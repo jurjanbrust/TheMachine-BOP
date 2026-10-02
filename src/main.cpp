@@ -124,6 +124,8 @@ void ProcessSerialSceneCommand()
             RunPulseOfLifeOpening();
         else if (command == "19" || command.equalsIgnoreCase("opening-moonlight"))
             RunMoonlightRevealOpening();
+        else if (command.equalsIgnoreCase("jackpot"))
+            TriggerJackpotCelebration();
         else if (command.equalsIgnoreCase("stop"))
             SetAllStopped(true);
         else if (command.equalsIgnoreCase("resume"))

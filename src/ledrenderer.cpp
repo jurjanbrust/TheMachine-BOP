@@ -6,6 +6,8 @@
 namespace
 {
     constexpr TickType_t kMinimumFrameInterval = pdMS_TO_TICKS(16);
+    constexpr uint8_t kJackpotLedCount = 48;
+    constexpr uint8_t kJackpotBlendAmount = 36;
 
     CRGB g_outputLeds0[NUM_LEDS0];
     CRGB g_outputLeds1[NUM_LEDS1];
@@ -95,7 +97,9 @@ void LedRenderTaskEntry(void *)
 
     for (;;)
     {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        const TickType_t waitTime =
+            g_outputEnabled ? kMinimumFrameInterval : portMAX_DELAY;
+        ulTaskNotifyTake(pdTRUE, waitTime);
 
         const TickType_t now = xTaskGetTickCount();
         const TickType_t elapsed = now - lastFrameTick;
@@ -104,8 +108,13 @@ void LedRenderTaskEntry(void *)
 
         uint8_t brightness;
         bool outputEnabled;
+        CRGB jackpotTarget[kJackpotLedCount];
         portENTER_CRITICAL(&g_frameMux);
-        ::memcpy(g_outputLeds0, g_pendingLeds0, sizeof(g_outputLeds0));
+        ::memcpy(jackpotTarget, g_pendingLeds0, sizeof(jackpotTarget));
+        ::memcpy(
+            &g_outputLeds0[kJackpotLedCount],
+            &g_pendingLeds0[kJackpotLedCount],
+            sizeof(g_outputLeds0) - sizeof(jackpotTarget));
         ::memcpy(g_outputLeds1, g_pendingLeds1, sizeof(g_outputLeds1));
         brightness = g_brightness;
         outputEnabled = g_outputEnabled;
@@ -115,6 +124,15 @@ void LedRenderTaskEntry(void *)
         {
             fill_solid(g_outputLeds0, NUM_LEDS0, CRGB::Black);
             fill_solid(g_outputLeds1, NUM_LEDS1, CRGB::Black);
+        }
+        else
+        {
+            for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+            {
+                g_outputLeds0[i] = blend(
+                    g_outputLeds0[i], jackpotTarget[i],
+                    kJackpotBlendAmount);
+            }
         }
         FastLED.setBrightness(brightness);
         FastLED.show();
