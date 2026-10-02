@@ -2,6 +2,7 @@
 #include "drawing.h"
 #include <ArduinoOTA.h>             // Over-the-air helper object so we can be flashed via WiFi
 #include <cstring>
+#include <esp_system.h>
 
 // The g_buffer_mutex is a global mutex used to protect access while adding or removing frames
 // from the led buffer.  
@@ -19,6 +20,9 @@ namespace
     constexpr uint8_t  kJackpotSegments            = 8;
     constexpr uint8_t  kJackpotLedsPerSegment      = 6;
     constexpr uint8_t  kJackpotLedCount            = kJackpotSegments * kJackpotLedsPerSegment;
+    constexpr uint8_t  kJackpotVisualToPhysical[kJackpotSegments] = {
+        7, 6, 5, 4, 3, 2, 1, 0
+    }; // visible labels 1 through 8
     constexpr uint8_t  kJackpotDimScale            = 80;
     constexpr uint32_t kJackpotModeDurationMs      = 15000;
     constexpr uint32_t kJackpotDimmedDurationMs    = 60000;
@@ -63,6 +67,11 @@ namespace
     constexpr uint32_t kJackpotCelebrationDurationMs = 5000;
     constexpr uint32_t kAwakeningDurationMs          = 60000; // 1 minute total
 
+    uint8_t OpeningStageAmount(uint32_t elapsed, uint32_t start, uint32_t duration);
+    void FadeBothStripsTo(const CRGB & strip0Target,
+                          const CRGB & strip1Target,
+                          uint32_t durationMs);
+
     // -----------------------------------------------------------------------
     // Random-queue scheduler for auto-triggered special modes
     // -----------------------------------------------------------------------
@@ -77,10 +86,11 @@ namespace
         JackpotCelebration,
         Awakening,
         Plasma,
-        Rain,
-        BreathingGrid,
+        LightningStorm,
+        Multiball,
         SpotlightCone,
         SpatialMeteor,
+        CrimsonTakeover,
         COUNT  // must be last
     };
     constexpr uint8_t kSpecialModeCount = static_cast<uint8_t>(SpecialMode::COUNT);
@@ -144,7 +154,8 @@ namespace
     uint32_t g_frontheadPulseStart = 0;
     CRGB g_streetSparkleLayer[kStreetLedCount] = {};
     bool g_globalHeartActive = false;
-    bool g_showcaseActive = false;
+    // Showcase owns both strips from boot; the machine task releases them after startup.
+    bool g_showcaseActive = true;
     volatile bool g_jackpotCelebrationRequested = false;
     bool g_jackpotCelebrationActive = false;
     volatile bool g_awakeningRequested = false;
@@ -158,6 +169,30 @@ namespace
     volatile bool g_breathingGridRequested = false;
     volatile bool g_spotlightConeRequested = false;
     volatile bool g_spatialMeteorRequested = false;
+    volatile bool g_quantumVortexRequested = false;
+    volatile bool g_lightningStormRequested = false;
+    volatile bool g_neonRingsRequested = false;
+    volatile bool g_artworkStoryRequested = false;
+    volatile bool g_fireworksRequested = false;
+    volatile bool g_laserMatrixRequested = false;
+    volatile bool g_ghostBrideRequested = false;
+    volatile bool g_multiballRequested = false;
+    volatile bool g_solarEclipseRequested = false;
+    volatile bool g_prismShatterRequested = false;
+    volatile bool g_crimsonTakeoverRequested = false;
+    volatile bool g_openingShowcaseRequested = false;
+    volatile bool g_cosmicOpeningRequested = false;
+    volatile bool g_brideAssemblyOpeningRequested = false;
+    volatile bool g_launchControlOpeningRequested = false;
+    volatile bool g_cityAwakeningOpeningRequested = false;
+    volatile bool g_diagnosticsOpeningRequested = false;
+    volatile bool g_stellarTransmissionOpeningRequested = false;
+    volatile bool g_pulseOfLifeOpeningRequested = false;
+    volatile bool g_moonlightRevealOpeningRequested = false;
+    bool g_showcaseReviewActive = false;
+    bool g_globalColorTakeoverActive = false;
+    bool g_startupOpeningActive = false;
+    uint8_t g_startupOpeningSelection = 1;
 
     const CRGB kSpotlightColor = CRGB::White;
 
@@ -462,6 +497,30 @@ namespace
         }
     }
 
+    void RenderStreetRunner()
+    {
+        static CRGB trail[kStreetLedCount] = {};
+        static uint8_t position = 0;
+        static int8_t direction = 1;
+        static uint32_t nextStep = 0;
+
+        fadeToBlackBy(trail, kStreetLedCount, 70);
+        if (millis() >= nextStep)
+        {
+            trail[position] = position == 0
+                ? CRGB::White : CRGB(255, 175, 55);
+            if (position == 0)
+                direction = 1;
+            else if (position == kStreetLedCount - 1)
+                direction = -1;
+            position = static_cast<uint8_t>(position + direction);
+            nextStep = millis() + 130;
+        }
+
+        for (uint8_t i = 0; i < kStreetLedCount; ++i)
+            leds1[kStreetIndices[i]] = trail[i];
+    }
+
     void RenderCarHeadlights()
     {
         // Smooth crossfade between left/right pairs like passing traffic
@@ -617,9 +676,14 @@ namespace
 
     void RenderMachineSparkle()
     {
-        fadeToBlackBy(&leds1[theMachineFirstLed], kMachineLedCount, 40);
+        for (uint8_t i = 0; i < kMachineLedCount; ++i)
+        {
+            leds1[theMachineFirstLed + i] = blend(
+                leds1[theMachineFirstLed + i], CRGB(18, 8, 24), 38);
+        }
         const uint8_t idx = random8(kMachineLedCount);
-        leds1[theMachineFirstLed + idx] = CRGB::White;
+        leds1[theMachineFirstLed + idx] = idx % 2
+            ? CRGB(210, 230, 255) : CRGB(255, 185, 95);
         FastLED.show();
         delay(30);
     }
@@ -629,9 +693,13 @@ namespace
         static int8_t direction = 1;
         static uint8_t position = 0;
 
-        FillMachineRange(CRGB::Black);
+        fadeToBlackBy(&leds1[theMachineFirstLed], kMachineLedCount, 90);
         const uint8_t ledIndex = theMachineFirstLed + position;
-        leds1[ledIndex] = CRGB::Red;
+        leds1[ledIndex] = CRGB(255, 35, 10);
+        if (position > 0)
+            leds1[ledIndex - 1] += CRGB(90, 8, 0);
+        if (position + 1 < kMachineLedCount)
+            leds1[ledIndex + 1] += CRGB(90, 8, 0);
         FastLED.show();
 
         if (position == 0)
@@ -653,12 +721,13 @@ namespace
         static int8_t cometDir = 1;
 
         leds1[theMachineFirstLed + cometPos] = CRGB::White;
-        // Slight warm glow behind the head
-        if (cometPos >= 1)
+        // Warm trail follows the current direction.
+        const int8_t trailIndex = static_cast<int8_t>(cometPos) - cometDir;
+        if (trailIndex >= 0 && trailIndex < kMachineLedCount)
         {
             CRGB trail = CRGB(246, 200, 160);
             trail.nscale8_video(180);
-            leds1[theMachineFirstLed + cometPos - 1] += trail;
+            leds1[theMachineFirstLed + trailIndex] += trail;
         }
 
         if (cometPos == 0)
@@ -876,18 +945,21 @@ namespace
         g_jackpotCelebrationActive = false;
     }
 
-    // --- Spotlight Color Wash (during Showcase hold) ---
-    CRGB GetSpotlightWashColor()
+    // --- Complementary spotlight color wash (during Showcase hold) ---
+    void SetShowcaseSpotlightWash()
     {
-        // Slow cycle: white → warm white → soft amber → back
         const uint8_t progress = beatsin8(6, 0, 255);
-        // Interpolate from pure white to warm amber
-        return CRGB(255, lerp8by8(255, 200, progress), lerp8by8(255, 140, progress));
+        leds1[spotlights1] = blend(
+            CRGB(255, 245, 220), CRGB(255, 155, 45), progress);
+        leds1[spotlights2] = blend(
+            CRGB(150, 195, 255), CRGB(235, 245, 255), progress);
     }
 
     struct ShowcaseState
     {
         bool initialized = false;
+        bool spotlightStateLogged = false;
+        bool spotlightOn = false;
         uint8_t stage = 0;
         uint32_t stageStart = 0;
     };
@@ -916,6 +988,8 @@ namespace
             g_showcaseState.stage = 0;
             g_showcaseState.stageStart = now;
             g_showcaseActive = true;
+            Serial.printf("[SHOWCASE] started at %lu ms; stage 0 flicker\n",
+                          static_cast<unsigned long>(now));
 
             // Black out everything at the start
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
@@ -926,6 +1000,9 @@ namespace
         auto advanceStage = [&](uint8_t nextStage) {
             g_showcaseState.stage = nextStage;
             g_showcaseState.stageStart = millis();
+            Serial.printf("[SHOWCASE] stage %u started at %lu ms\n",
+                          nextStage,
+                          static_cast<unsigned long>(g_showcaseState.stageStart));
         };
 
         switch (g_showcaseState.stage)
@@ -939,17 +1016,33 @@ namespace
                 fill_solid(leds0, NUM_LEDS0, CRGB::Black);
                 fill_solid(leds1, NUM_LEDS1, CRGB::Black);
 
-                // Fluorescent tube simulation: on-probability ramps up over time
+                // Each tube ignites independently and settles into its own
+                // theatrical color temperature.
                 const uint8_t progress = static_cast<uint8_t>(
                     min(255UL, (elapsed * 255UL) / kShowcaseFlickerDurationMs));
                 const uint8_t onChance = lerp8by8(40, 255, progress);
-                // Occasional dark bursts early on
-                const bool burstOff = (random8() < 20) && (progress < 200);
-                const bool isOn = (random8() < onChance) && !burstOff;
+                const bool warmBurstOff = random8() < 18 && progress < 205;
+                const bool coolBurstOff = random8() < 24 && progress < 215;
+                const bool warmOn = random8() < onChance && !warmBurstOff;
+                const bool coolOn = random8() < qsub8(onChance, 8) && !coolBurstOff;
+                const bool anyOn = warmOn || coolOn;
 
-                const CRGB spotColor = isOn ? kSpotlightColor : CRGB::Black;
-                leds1[spotlights1] = spotColor;
-                leds1[spotlights2] = spotColor;
+                if (!g_showcaseState.spotlightStateLogged ||
+                    g_showcaseState.spotlightOn != anyOn)
+                {
+                    g_showcaseState.spotlightStateLogged = true;
+                    g_showcaseState.spotlightOn = anyOn;
+                    Serial.printf("[SHOWCASE] flicker warm=%u cool=%u at %lu ms\n",
+                                  warmOn, coolOn,
+                                  static_cast<unsigned long>(elapsed));
+                }
+
+                const CRGB warmColor = blend(
+                    CRGB(105, 145, 255), CRGB(255, 178, 72), progress);
+                const CRGB coolColor = blend(
+                    CRGB(85, 115, 255), CRGB(205, 235, 255), progress);
+                leds1[spotlights1] = warmOn ? warmColor : CRGB::Black;
+                leds1[spotlights2] = coolOn ? coolColor : CRGB::Black;
                 FastLED.show();
                 delay(random8(30, 120));
 
@@ -964,8 +1057,12 @@ namespace
                 const uint32_t elapsed = now - g_showcaseState.stageStart;
                 const uint8_t intensity = ShowcaseIntensity(elapsed);
 
-                // Spotlights stay on permanently
-                SetSpotlights(kSpotlightColor);
+                CRGB warmSpot(255, 178, 72);
+                CRGB coolSpot(205, 235, 255);
+                warmSpot.nscale8_video(intensity);
+                coolSpot.nscale8_video(intensity);
+                leds1[spotlights1] = warmSpot;
+                leds1[spotlights2] = coolSpot;
 
                 // Ramp up The Machine logo
                 CRGB machineColor = CRGB(246, 200, 160);
@@ -988,23 +1085,74 @@ namespace
                 }
                 break;
             }
-            case 2: // Sweep reveal — warm white bottom-to-top across the whole backglass
+            case 2: // Chromatic artwork reveal without washing the whole panel white
             {
-                // Keep spotlights, logo and planets lit during the sweep
-                SetSpotlights(kSpotlightColor);
-                FillMachineRange(CRGB(246, 200, 160));
-                for (uint8_t i = 0; i < kPlanetCount; ++i)
-                    leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
+                constexpr uint32_t revealDurationMs = 2800;
+                const uint32_t revealStart = millis();
+                while (millis() - revealStart < revealDurationMs)
+                {
+                    const uint8_t progress = static_cast<uint8_t>(
+                        ((millis() - revealStart) * 255UL) / revealDurationMs);
+                    fill_solid(leds1, NUM_LEDS1, CRGB::Black);
 
-                SweepFill(CRGB(246, 200, 160), SweepDirection::DiagBRtoTL, 2000, 3);
-                delay(4000);  // hold the fully-lit state for 4 seconds
+                    leds1[spotlights1] = CRGB(255, 178, 72);
+                    leds1[spotlights2] = CRGB(205, 235, 255);
+                    FillMachineRange(CRGB(246, 200, 160));
+                    for (uint8_t i = 0; i < kPlanetCount; ++i)
+                        leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
+
+                    for (uint8_t b = 0; b < kBrideLedCount; ++b)
+                    {
+                        const uint8_t index = kBrideIndices[b];
+                        const uint8_t threshold = static_cast<uint8_t>(
+                            ((kGridRows - 1 - kLedCoords[index].y) * 255UL) /
+                            (kGridRows - 1));
+                        if (progress >= threshold)
+                        {
+                            const uint8_t glow = qadd8(
+                                45, scale8(progress - threshold, 170));
+                            leds1[index] = CHSV(
+                                188 + kLedCoords[index].x * 2, 175, glow);
+                        }
+                    }
+
+                    const uint8_t accents = qsub8(progress, 100);
+                    for (uint8_t i = 0; i < kStreetLedCount; ++i)
+                    {
+                        CRGB color(255, 135, 35);
+                        color.nscale8_video(scale8(accents, 110));
+                        leds1[kStreetIndices[i]] = color;
+                    }
+                    for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+                    {
+                        CRGB flame = CRGB::DarkOrange;
+                        flame.nscale8_video(scale8(accents, 180));
+                        leds1[kShuttleFirstLed + i] = flame;
+                    }
+
+                    FastLED.show();
+                    delay(20);
+                }
+                delay(800);
                 g_showcaseActive = false;
+                Serial.printf("[SHOWCASE] startup ownership released at %lu ms\n",
+                              static_cast<unsigned long>(millis()));
+                if (g_showcaseReviewActive)
+                {
+                    Serial.printf("[OPENING] 1 Improved Fluorescent Showcase finished\n");
+                    g_showcaseReviewActive = false;
+                }
+                if (g_startupOpeningActive)
+                {
+                    g_startupOpeningActive = false;
+                    Serial.printf("[BOOT] random opening finished; normal animations resumed\n");
+                }
                 advanceStage(3);
                 break;
             }
             case 3: // Hold — spotlights wash color, logo, and planets stay lit
             {
-                SetSpotlights(GetSpotlightWashColor());
+                SetShowcaseSpotlightWash();
                 FillMachineRange(CRGB(246, 200, 160));
                 for (uint8_t i = 0; i < kPlanetCount; ++i)
                 {
@@ -1099,8 +1247,8 @@ namespace
         // Snapshot the current LED state
         CRGB snapshot0[NUM_LEDS0];
         CRGB snapshot1[NUM_LEDS1];
-        memcpy(snapshot0, leds0, sizeof(snapshot0));
-        memcpy(snapshot1, leds1, sizeof(snapshot1));
+        ::memcpy(snapshot0, leds0, sizeof(snapshot0));
+        ::memcpy(snapshot1, leds1, sizeof(snapshot1));
 
         constexpr uint32_t kFadeInDurationMs = 2000;
         const uint32_t fadeStart = millis();
@@ -1387,6 +1535,22 @@ namespace
         }
     }
 
+    void FillJackpotVisualSegment(uint8_t visualSegment, const CRGB & color)
+    {
+        if (visualSegment < kJackpotSegments)
+            FillJackpotSegment(kJackpotVisualToPhysical[visualSegment], color);
+    }
+
+    void FillJackpotVisualOutputSegment(uint8_t visualSegment,
+                                        const CRGB & color)
+    {
+        if (visualSegment >= kJackpotSegments)
+            return;
+        const uint8_t physical = kJackpotVisualToPhysical[visualSegment];
+        fill_solid(&leds0[physical * kJackpotLedsPerSegment],
+                   kJackpotLedsPerSegment, color);
+    }
+
     void ClearJackpotRange()
     {
         for (uint8_t i = 0; i < kJackpotLedCount; ++i)
@@ -1410,7 +1574,7 @@ namespace
         for (uint8_t segment = 0; segment < kJackpotSegments; ++segment)
         {
             const CRGB color = (segment < (kJackpotSegments / 2)) ? CRGB::DarkOrange : CRGB::Red;
-            FillJackpotSegment(segment, color);
+            FillJackpotVisualSegment(segment, color);
         }
     }
 
@@ -1509,9 +1673,11 @@ namespace
     {
         if (g_jackpotRuntime.secondary < kJackpotSegments && g_jackpotRuntime.secondary != g_jackpotRuntime.step)
         {
-            FillJackpotSegment(g_jackpotRuntime.secondary, CRGB::Black);
+            FillJackpotVisualSegment(g_jackpotRuntime.secondary, CRGB::Black);
         }
-        FillJackpotSegment(g_jackpotRuntime.step, CRGB::Red);
+        FillJackpotVisualSegment(g_jackpotRuntime.step,
+            blend(CRGB::DarkRed, CRGB::Gold,
+                  static_cast<uint8_t>(g_jackpotRuntime.step * 30)));
         g_jackpotRuntime.secondary = g_jackpotRuntime.step;
 
         if (g_jackpotRuntime.forward)
@@ -1547,7 +1713,8 @@ namespace
         static const CRGB palette[] = { CRGB::DarkOrange, CRGB::Gold, CRGB::Red };
         constexpr size_t paletteSize = sizeof(palette) / sizeof(palette[0]);
 
-        FillJackpotSegment(g_jackpotRuntime.step, palette[g_jackpotRuntime.secondary]);
+        FillJackpotVisualSegment(g_jackpotRuntime.step,
+                                 palette[g_jackpotRuntime.secondary]);
         ++g_jackpotRuntime.step;
 
         if (g_jackpotRuntime.step >= kJackpotSegments)
@@ -1564,42 +1731,40 @@ namespace
     void StepJackpotDualChase()
     {
         ClearJackpotRange();
-        uint8_t left = g_jackpotRuntime.step;
-        uint8_t right = g_jackpotRuntime.secondary;
-        if (left < kJackpotLedCount)
-            SetJackpotLed(left, CRGB::Cyan);
-        if (right < kJackpotLedCount)
-            SetJackpotLed(right, CRGB::Magenta);
+        const uint8_t left = g_jackpotRuntime.step;
+        const uint8_t right = kJackpotSegments - 1 - g_jackpotRuntime.step;
+        FillJackpotVisualSegment(left, CRGB::Cyan);
+        FillJackpotVisualSegment(right, CRGB::Magenta);
+        if (left > 0)
+            FillJackpotVisualSegment(left - 1, CRGB(0, 45, 55));
+        if (right + 1 < kJackpotSegments)
+            FillJackpotVisualSegment(right + 1, CRGB(50, 0, 45));
 
-        if (left >= right || right == 0)
+        if (left >= right)
         {
             g_jackpotRuntime.step = 0;
-            g_jackpotRuntime.secondary = kJackpotLedCount - 1;
         }
         else
         {
             ++g_jackpotRuntime.step;
-            --g_jackpotRuntime.secondary;
         }
     }
 
     void StepJackpotMeteor()
     {
-        constexpr uint8_t meteorSize = 5;
-        constexpr uint8_t trailDecay = 70;
-        const int totalSteps = kJackpotLedCount + kJackpotLedsPerSegment;
-
-        fadeToBlackBy(g_jackpotFrame, kJackpotLedCount, trailDecay);
-        for (uint8_t i = 0; i < meteorSize; ++i)
+        fadeToBlackBy(g_jackpotFrame, kJackpotLedCount, 80);
+        for (uint8_t trail = 0; trail < 3; ++trail)
         {
-            int idx = static_cast<int>(g_jackpotRuntime.step) - i;
-            if (idx >= 0 && idx < kJackpotLedCount)
+            const int visual = static_cast<int>(g_jackpotRuntime.step) - trail;
+            if (visual >= 0 && visual < kJackpotSegments)
             {
-                g_jackpotFrame[idx] = CRGB::DeepSkyBlue;
+                CRGB color = CRGB::DeepSkyBlue;
+                color.nscale8_video(255 - trail * 75);
+                FillJackpotVisualSegment(static_cast<uint8_t>(visual), color);
             }
         }
         ++g_jackpotRuntime.step;
-        if (g_jackpotRuntime.step >= totalSteps)
+        if (g_jackpotRuntime.step >= kJackpotSegments + 3)
         {
             g_jackpotRuntime.step = 0;
         }
@@ -1607,9 +1772,10 @@ namespace
 
     void StepJackpotRainbowSweep()
     {
-        for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+        for (uint8_t segment = 0; segment < kJackpotSegments; ++segment)
         {
-            g_jackpotFrame[i] = CHSV(g_jackpotRuntime.hueBase + i * 4, 240, 255);
+            FillJackpotVisualSegment(segment,
+                CHSV(g_jackpotRuntime.hueBase + segment * 24, 220, 255));
         }
         g_jackpotRuntime.hueBase += 3;
     }
@@ -1633,12 +1799,13 @@ namespace
 
     void StepJackpotPlasma()
     {
-        for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+        for (uint8_t segment = 0; segment < kJackpotSegments; ++segment)
         {
-            const uint8_t waveA = sin8(g_jackpotRuntime.hueBase + i * 8);
-            const uint8_t waveB = sin8(g_jackpotRuntime.step + i * 16);
+            const uint8_t waveA = sin8(g_jackpotRuntime.hueBase + segment * 24);
+            const uint8_t waveB = sin8(g_jackpotRuntime.step + segment * 35);
             const uint8_t blend = qadd8(waveA, waveB) / 2;
-            g_jackpotFrame[i] = CHSV(waveA + g_jackpotRuntime.hueBase, 200, blend);
+            FillJackpotVisualSegment(segment,
+                CHSV(waveA + g_jackpotRuntime.hueBase, 200, blend));
         }
 
         g_jackpotRuntime.hueBase += 3;
@@ -1699,6 +1866,18 @@ namespace
         return static_cast<JackpotMode>(next);
     }
 
+    void FadeJackpotModeOut()
+    {
+        for (uint8_t frame = 0; frame < 12; ++frame)
+        {
+            fadeToBlackBy(g_jackpotFrame, kJackpotLedCount, 42);
+            for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+                leds0[i] = g_jackpotFrame[i];
+            FastLED.show();
+            delay(18);
+        }
+    }
+
     void UpdateJackpotAnimations()
     {
         const uint32_t now = millis();
@@ -1709,6 +1888,7 @@ namespace
 
         if (now - g_jackpotRuntime.modeStart >= g_jackpotRuntime.modeDuration)
         {
+            FadeJackpotModeOut();
             ResetJackpotRuntime(NextJackpotMode(g_jackpotRuntime.mode), now);
         }
 
@@ -1861,6 +2041,9 @@ namespace
         {
             case StreetMode::Pulse:
                 RenderStreetPulse();
+                break;
+            case StreetMode::Runner:
+                RenderStreetRunner();
                 break;
             case StreetMode::Sparkle:
                 RenderStreetSparkle();
@@ -2046,9 +2229,9 @@ void TriggerAwakening()
 
 void SetAllStopped(bool stopped)
 {
-    g_allStopped = stopped;
     if (stopped)
     {
+        g_allStopped = true;
         fill_solid(leds0, NUM_LEDS0, CRGB::Black);
         fill_solid(leds1, NUM_LEDS1, CRGB::Black);
         FastLED.show();
@@ -2056,6 +2239,9 @@ void SetAllStopped(bool stopped)
     }
     else
     {
+        if (g_allStopped)
+            FadeBothStripsTo(CRGB::Black, CRGB::Black, 350);
+        g_allStopped = false;
         debugI("Animations resumed");
     }
 }
@@ -2097,6 +2283,135 @@ void RunSpotlightCone()
 void RunSpatialMeteor()
 {
     g_spatialMeteorRequested = true;
+}
+
+void RunQuantumVortex()
+{
+    g_quantumVortexRequested = true;
+}
+
+void RunLightningStorm()
+{
+    g_lightningStormRequested = true;
+}
+
+void RunNeonRings()
+{
+    g_neonRingsRequested = true;
+}
+
+void RunArtworkStory()
+{
+    g_artworkStoryRequested = true;
+}
+
+void RunFireworks()
+{
+    g_fireworksRequested = true;
+}
+
+void RunLaserMatrix()
+{
+    g_laserMatrixRequested = true;
+}
+
+void RunGhostBride()
+{
+    g_ghostBrideRequested = true;
+}
+
+void RunMultiball()
+{
+    g_multiballRequested = true;
+}
+
+void RunSolarEclipse()
+{
+    g_solarEclipseRequested = true;
+}
+
+void RunPrismShatter()
+{
+    g_prismShatterRequested = true;
+}
+
+void RunCrimsonTakeover()
+{
+    g_crimsonTakeoverRequested = true;
+}
+
+void RunOpeningShowcase()
+{
+    g_openingShowcaseRequested = true;
+}
+
+void RunCosmicOpening()
+{
+    g_cosmicOpeningRequested = true;
+}
+
+void RunBrideAssemblyOpening()
+{
+    g_brideAssemblyOpeningRequested = true;
+}
+
+void RunLaunchControlOpening()
+{
+    g_launchControlOpeningRequested = true;
+}
+
+void RunCityAwakeningOpening()
+{
+    g_cityAwakeningOpeningRequested = true;
+}
+
+void RunDiagnosticsOpening()
+{
+    g_diagnosticsOpeningRequested = true;
+}
+
+void RunStellarTransmissionOpening()
+{
+    g_stellarTransmissionOpeningRequested = true;
+}
+
+void RunPulseOfLifeOpening()
+{
+    g_pulseOfLifeOpeningRequested = true;
+}
+
+void RunMoonlightRevealOpening()
+{
+    g_moonlightRevealOpeningRequested = true;
+}
+
+uint8_t PrepareRandomStartupOpening()
+{
+    g_startupOpeningSelection = static_cast<uint8_t>((esp_random() % 9) + 1);
+    g_startupOpeningActive = true;
+
+    if (g_startupOpeningSelection == 1)
+    {
+        g_showcaseActive = true;
+        g_allStopped = false;
+        return g_startupOpeningSelection;
+    }
+
+    g_showcaseActive = false;
+    g_allStopped = true;
+    switch (g_startupOpeningSelection)
+    {
+        case 2:  g_cosmicOpeningRequested = true; break;
+        case 3:  g_brideAssemblyOpeningRequested = true; break;
+        case 4:  g_launchControlOpeningRequested = true; break;
+        case 5:  g_cityAwakeningOpeningRequested = true; break;
+        case 6:  g_diagnosticsOpeningRequested = true; break;
+        case 7:  g_stellarTransmissionOpeningRequested = true; break;
+        case 8:  g_pulseOfLifeOpeningRequested = true; break;
+        case 9:  g_moonlightRevealOpeningRequested = true; break;
+        default: break;
+    }
+    return g_startupOpeningSelection;
 }
 
 namespace
@@ -2170,6 +2485,39 @@ namespace
         }
     }
 
+    void FadeBothStripsTo(const CRGB & strip0Target,
+                          const CRGB & strip1Target,
+                          uint32_t durationMs)
+    {
+        CRGB snapshot0[NUM_LEDS0];
+        CRGB snapshot1[NUM_LEDS1];
+        ::memcpy(snapshot0, leds0, sizeof(snapshot0));
+        ::memcpy(snapshot1, leds1, sizeof(snapshot1));
+
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const uint8_t amount = static_cast<uint8_t>(
+                ((millis() - start) * 255UL) / durationMs);
+            for (uint8_t i = 0; i < NUM_LEDS0; ++i)
+                leds0[i] = blend(snapshot0[i], strip0Target, amount);
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                leds1[i] = blend(snapshot1[i], strip1Target, amount);
+            FastLED.show();
+            delay(16);
+        }
+        fill_solid(leds0, NUM_LEDS0, strip0Target);
+        fill_solid(leds1, NUM_LEDS1, strip1Target);
+        FastLED.show();
+    }
+
+    void BeginExclusiveScene(const CRGB & transitionColor = CRGB::Black)
+    {
+        g_allStopped = true;
+        delay(20);
+        FadeBothStripsTo(transitionColor, transitionColor, 500);
+    }
+
     // -----------------------------------------------------------------------
     // Auto-triggered radial pulse with smooth cross-fade transitions
     // -----------------------------------------------------------------------
@@ -2177,7 +2525,7 @@ namespace
     {
         // Snapshot current state
         CRGB snapshotBefore[NUM_LEDS1];
-        memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
+        ::memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
 
         // Cross-fade from current to black (500ms)
         const uint32_t dimStart = millis();
@@ -2196,7 +2544,7 @@ namespace
         // Cross-fade from warm-white back to previous state (1s)
         CRGB snapshotAfter[NUM_LEDS1];
         fill_solid(snapshotAfter, NUM_LEDS1, CRGB(246, 200, 160));
-        memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
+        ::memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
         CrossFadeFromSnapshot(snapshotAfter, 1000);
     }
 
@@ -2217,7 +2565,7 @@ namespace
 
         // Snapshot current state
         CRGB snapshotBefore[NUM_LEDS1];
-        memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
+        ::memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
 
         // Run sweep fill (overwrites leds1)
         SweepFill(CRGB(246, 200, 160), dir, 2000, 3);
@@ -2227,8 +2575,8 @@ namespace
 
         // Cross-fade from warm white back to live state (1.5s)
         CRGB snapshotSweep[NUM_LEDS1];
-        memcpy(snapshotSweep, leds1, sizeof(snapshotSweep));
-        memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
+        ::memcpy(snapshotSweep, leds1, sizeof(snapshotSweep));
+        ::memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
         CrossFadeFromSnapshot(snapshotSweep, 1500);
     }
 
@@ -2606,12 +2954,1197 @@ namespace
     }
 
     // -----------------------------------------------------------------------
+    // Quantum Vortex — rotating spiral arms collapse into a bright core
+    // -----------------------------------------------------------------------
+    void RunQuantumVortexEffect(uint32_t durationMs = 10000)
+    {
+        constexpr float kCenterX = 9.0f;
+        constexpr float kCenterY = 7.0f;
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            const float t = (millis() - start) / 1000.0f;
+
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float dx = kLedCoords[i].x - kCenterX;
+                const float dy = kLedCoords[i].y - kCenterY;
+                const float radius = sqrtf(dx * dx + dy * dy);
+                const float angle = atan2f(dy, dx);
+
+                const float armA = sinf(angle * 3.0f - radius * 1.15f + t * 4.2f);
+                const float armB = sinf(angle * 2.0f + radius * 0.75f - t * 2.7f);
+                float energy = max(0.0f, armA) * 0.72f + max(0.0f, armB) * 0.28f;
+                energy *= 0.45f + 0.55f * max(0.0f, 1.0f - radius / 13.0f);
+
+                const uint8_t brightness = static_cast<uint8_t>(
+                    constrain(energy * 255.0f, 3.0f, 255.0f));
+                const uint8_t hue = static_cast<uint8_t>(
+                    165.0f + radius * 7.0f + t * 18.0f);
+                leds1[i] = CHSV(hue, 230, brightness);
+
+                if (radius < 2.0f)
+                {
+                    const uint8_t core = static_cast<uint8_t>(
+                        (1.0f - radius / 2.0f) * beatsin8(42, 150, 255));
+                    leds1[i] += CRGB(core, core, core);
+                }
+            }
+            FastLED.show();
+            delay(25);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Lightning Storm — jagged spatial bolts with afterglow and sky flashes
+    // -----------------------------------------------------------------------
+    void RunLightningStormEffect(uint32_t durationMs = 10000)
+    {
+        float boltX[kGridRows] = {};
+        uint8_t afterglow[NUM_LEDS1] = {};
+        uint32_t nextStrike = 0;
+        uint8_t flashFrames = 0;
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                afterglow[i] = scale8(afterglow[i], 185);
+
+            if (elapsed >= nextStrike)
+            {
+                boltX[0] = random(3, 16);
+                for (uint8_t y = 1; y < kGridRows; ++y)
+                {
+                    boltX[y] = constrain(
+                        boltX[y - 1] + random(-3, 4), 0.0f, 18.0f);
+                }
+
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    const uint8_t y = kLedCoords[i].y;
+                    const float distance = fabsf(kLedCoords[i].x - boltX[y]);
+                    if (distance < 0.75f)
+                        afterglow[i] = 255;
+                    else if (distance < 1.75f)
+                        afterglow[i] = max(afterglow[i], static_cast<uint8_t>(110));
+                }
+
+                flashFrames = random8() < 90 ? 2 : 1;
+                nextStrike = elapsed + random(280, 850);
+            }
+
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const uint8_t ambient = 3 + (kLedCoords[i].y / 4);
+                leds1[i] = CRGB(0, ambient, ambient * 3);
+                if (afterglow[i] > 0)
+                {
+                    CRGB bolt(155, 195, 255);
+                    bolt.nscale8_video(afterglow[i]);
+                    leds1[i] += bolt;
+                }
+                if (flashFrames > 0)
+                    leds1[i] += CRGB(35, 45, 70);
+            }
+            if (flashFrames > 0)
+                --flashFrames;
+
+            FastLED.show();
+            delay(45);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Neon Rings — the three physical loops counter-rotate independently
+    // -----------------------------------------------------------------------
+    void RunNeonRingsEffect(uint32_t durationMs = 10000)
+    {
+        constexpr uint8_t ringStart[] = { 0, 51, 86 };
+        constexpr uint8_t ringLength[] = { 51, 35, 35 };
+        constexpr uint8_t ringHue[] = { 224, 96, 160 };
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+            const uint32_t tick = (millis() - start) / 68;
+
+            for (uint8_t ring = 0; ring < 3; ++ring)
+            {
+                const uint8_t length = ringLength[ring];
+                const uint8_t head = ring == 1
+                    ? (length - 1 - (tick % length))
+                    : ((tick + ring * 9) % length);
+                const uint8_t secondHead = (head + length / 2) % length;
+
+                for (uint8_t p = 0; p < length; ++p)
+                {
+                    const uint8_t distanceA = min(
+                        static_cast<uint8_t>((p + length - head) % length),
+                        static_cast<uint8_t>((head + length - p) % length));
+                    const uint8_t distanceB = min(
+                        static_cast<uint8_t>((p + length - secondHead) % length),
+                        static_cast<uint8_t>((secondHead + length - p) % length));
+                    const uint8_t distance = min(distanceA, distanceB);
+                    uint8_t brightness = 5;
+                    if (distance == 0) brightness = 255;
+                    else if (distance == 1) brightness = 170;
+                    else if (distance == 2) brightness = 80;
+                    else if (distance == 3) brightness = 30;
+
+                    leds1[ringStart[ring] + p] =
+                        CHSV(ringHue[ring] + tick / 3, 240, brightness);
+                }
+            }
+
+            const uint8_t pulse = beatsin8(30, 40, 180);
+            leds1[spotlights1] += CRGB(pulse, pulse / 3, pulse);
+            leds1[spotlights2] += CRGB(pulse, pulse / 3, pulse);
+            FastLED.show();
+            delay(25);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Artwork Story — a staged reveal following semantic artwork elements
+    // -----------------------------------------------------------------------
+    void RunArtworkStoryEffect(uint32_t durationMs = 12000)
+    {
+        const uint32_t start = millis();
+        auto stageAmount = [](uint32_t elapsed, uint32_t stageStart,
+                              uint32_t stageDuration) -> uint8_t {
+            if (elapsed <= stageStart) return 0;
+            if (elapsed >= stageStart + stageDuration) return 255;
+            return static_cast<uint8_t>(
+                ((elapsed - stageStart) * 255UL) / stageDuration);
+        };
+        auto setScaled = [](CRGB & target, CRGB color, uint8_t amount) {
+            color.nscale8_video(amount);
+            target = color;
+        };
+
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            const uint8_t sky = stageAmount(elapsed, 0, 1800);
+            for (uint8_t i = 0; i < 3; ++i)
+                setScaled(leds1[moonTopLeft + i], CRGB::AntiqueWhite, sky);
+            for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+                setScaled(leds1[kShuttleFirstLed + i], CRGB::DarkOrange, sky);
+
+            const uint8_t bride = stageAmount(elapsed, 1400, 2600);
+            const uint8_t bridePulse = scale8(bride, beatsin8(14, 100, 255));
+            for (uint8_t i = 0; i < kBrideLedCount; ++i)
+                setScaled(leds1[kBrideIndices[i]], CRGB::BlueViolet, bridePulse);
+            for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
+                setScaled(leds0[i], CRGB::BlueViolet, bride);
+
+            const uint8_t worlds = stageAmount(elapsed, 3500, 2000);
+            for (uint8_t i = 0; i < kPlanetCount; ++i)
+                setScaled(leds1[kPlanetIndices[i]], kPlanetBaseColors[i], worlds);
+            CRGB appleColor = blend(CRGB::Green, CRGB::Red, beatsin8(12, 0, 255));
+            setScaled(leds1[apple], appleColor, worlds);
+
+            const uint8_t title = stageAmount(elapsed, 5200, 2200);
+            const uint8_t visibleLetters =
+                static_cast<uint8_t>((title * kMachineLedCount) / 255);
+            for (uint8_t i = 0; i < visibleLetters; ++i)
+                leds1[theMachineFirstLed + i] = CRGB(246, 200, 160);
+
+            const uint8_t finale = stageAmount(elapsed, 7000, 2200);
+            for (uint8_t i = 0; i < kStreetLedCount; ++i)
+                setScaled(leds1[kStreetIndices[i]], CRGB(255, 170, 50), finale);
+            setScaled(leds1[spotlights1], CRGB::White, finale);
+            setScaled(leds1[spotlights2], CRGB::White, finale);
+            setScaled(leds1[fingersLeftCorner], CRGB(246, 200, 160), finale);
+
+            const uint8_t heartbeat = scale8(finale, beatsin8(30, 35, 255));
+            setScaled(leds0[NUM_LEDS0 - 1], CRGB::Red, heartbeat);
+            const uint8_t jackpotSegments =
+                static_cast<uint8_t>((finale * kJackpotSegments) / 255);
+            for (uint8_t segment = 0; segment < jackpotSegments; ++segment)
+            {
+                const CRGB color = segment < 4 ? CRGB::DarkOrange : CRGB::Red;
+                fill_solid(&leds0[segment * kJackpotLedsPerSegment],
+                           kJackpotLedsPerSegment, color);
+            }
+
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Fireworks — launches from the horizon into overlapping spatial bursts
+    // -----------------------------------------------------------------------
+    void RunFireworksEffect(uint32_t durationMs = 10000)
+    {
+        struct Firework
+        {
+            float x;
+            float y;
+            uint8_t hue;
+            uint32_t launchAt;
+        };
+        constexpr uint8_t kFireworkCount = 4;
+        Firework fireworks[kFireworkCount];
+        const uint32_t start = millis();
+        for (uint8_t f = 0; f < kFireworkCount; ++f)
+        {
+            fireworks[f] = {
+                static_cast<float>(random(2, 17)),
+                static_cast<float>(random(2, 10)),
+                random8(),
+                static_cast<uint32_t>(f * 650)
+            };
+        }
+
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB(0, 0, 2));
+
+            for (uint8_t f = 0; f < kFireworkCount; ++f)
+            {
+                if (elapsed < fireworks[f].launchAt)
+                    continue;
+
+                const uint32_t age = elapsed - fireworks[f].launchAt;
+                if (age >= 2800)
+                {
+                    fireworks[f].x = random(2, 17);
+                    fireworks[f].y = random(2, 10);
+                    fireworks[f].hue = random8();
+                    fireworks[f].launchAt += 2800;
+                    continue;
+                }
+
+                if (age < 850)
+                {
+                    const float progress = age / 850.0f;
+                    const float headY = 14.0f +
+                        (fireworks[f].y - 14.0f) * progress;
+                    for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                    {
+                        const float dx = kLedCoords[i].x - fireworks[f].x;
+                        const float dy = kLedCoords[i].y - headY;
+                        const float distance = sqrtf(dx * dx + dy * dy);
+                        if (distance < 1.5f)
+                        {
+                            const uint8_t brightness = static_cast<uint8_t>(
+                                (1.0f - distance / 1.5f) * 255);
+                            leds1[i] += CHSV(fireworks[f].hue, 120, brightness);
+                        }
+                    }
+                    continue;
+                }
+
+                const float burstProgress = (age - 850) / 1950.0f;
+                const float radius = burstProgress * 11.0f;
+                const float width = 1.0f + burstProgress * 1.2f;
+                const uint8_t fade = static_cast<uint8_t>(
+                    max(0.0f, 255.0f * (1.0f - burstProgress)));
+
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    const float dx = kLedCoords[i].x - fireworks[f].x;
+                    const float dy = kLedCoords[i].y - fireworks[f].y;
+                    const float distance = sqrtf(dx * dx + dy * dy);
+                    const float edge = fabsf(distance - radius);
+                    if (edge < width)
+                    {
+                        const uint8_t brightness = scale8(
+                            fade, static_cast<uint8_t>(
+                                (1.0f - edge / width) * 255));
+                        leds1[i] += CHSV(
+                            fireworks[f].hue + static_cast<uint8_t>(distance * 4),
+                            210, brightness);
+                    }
+                }
+            }
+
+            if (random8() < 35)
+                leds1[random8(NUM_LEDS1)] += CRGB::White;
+
+            if (elapsed >= 7000)
+            {
+                const uint8_t cascade = OpeningStageAmount(elapsed, 7000, 2200);
+                const uint8_t segments = static_cast<uint8_t>(
+                    (cascade * kJackpotSegments) / 255);
+                for (uint8_t segment = 0; segment < segments; ++segment)
+                    FillJackpotVisualOutputSegment(segment, CRGB::Gold);
+
+                const float front = cascade / 255.0f * (kGridCols + kGridRows);
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    const float diagonal = kLedCoords[i].x +
+                        (kGridRows - 1 - kLedCoords[i].y);
+                    if (fabsf(diagonal - front) < 2.0f)
+                        leds1[i] += CRGB(255, 155, 35);
+                }
+            }
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Laser Matrix — independent scanner beams create bright intersections
+    // -----------------------------------------------------------------------
+    void RunLaserMatrixEffect(uint32_t durationMs = 10000)
+    {
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const float t = (millis() - start) / 1000.0f;
+            const float beamX1 = 9.0f + 9.0f * sinf(t * 1.65f);
+            const float beamX2 = 9.0f + 9.0f * sinf(t * 0.93f + 2.1f);
+            const float beamY1 = 7.0f + 7.0f * sinf(t * 1.27f + 0.8f);
+            const float beamY2 = 7.0f + 7.0f * sinf(t * 0.71f + 3.2f);
+
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float x = kLedCoords[i].x;
+                const float y = kLedCoords[i].y;
+                const float vertical = min(fabsf(x - beamX1), fabsf(x - beamX2));
+                const float horizontal = min(fabsf(y - beamY1), fabsf(y - beamY2));
+
+                const float vEnergy = max(0.0f, 1.0f - vertical / 1.4f);
+                const float hEnergy = max(0.0f, 1.0f - horizontal / 1.2f);
+                CRGB color(0, 0, 3);
+                if (vEnergy > 0)
+                    color += CRGB(0, static_cast<uint8_t>(vEnergy * 255),
+                                  static_cast<uint8_t>(vEnergy * 220));
+                if (hEnergy > 0)
+                    color += CRGB(static_cast<uint8_t>(hEnergy * 255), 0,
+                                  static_cast<uint8_t>(hEnergy * 190));
+                if (vEnergy > 0.55f && hEnergy > 0.55f)
+                    color += CRGB::White;
+                leds1[i] = color;
+            }
+            FastLED.show();
+            delay(24);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Ghost Bride — spectral energy inhabits only the bride and face
+    // -----------------------------------------------------------------------
+    void RunGhostBrideEffect(uint32_t durationMs = 10000)
+    {
+        uint8_t ectoplasm[kBrideLedCount] = {};
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            const float t = (millis() - start) / 1000.0f;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            if (random8() < 45)
+                ectoplasm[random8(kBrideLedCount)] = 255;
+
+            for (uint8_t b = 0; b < kBrideLedCount; ++b)
+            {
+                const uint8_t index = kBrideIndices[b];
+                ectoplasm[b] = scale8(ectoplasm[b], 225);
+                const float wave = 0.5f + 0.5f * sinf(
+                    t * 2.2f - kLedCoords[index].y * 0.7f +
+                    kLedCoords[index].x * 0.18f);
+                const uint8_t base = static_cast<uint8_t>(20 + wave * 115);
+                const uint8_t brightness = qadd8(base, ectoplasm[b]);
+                leds1[index] = CHSV(
+                    static_cast<uint8_t>(125 + wave * 35), 150, brightness);
+            }
+
+            const uint8_t facePulse = beatsin8(18, 70, 255);
+            for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
+                leds0[i] = CHSV(150, 120, facePulse);
+            leds0[NUM_LEDS0 - 1] = CRGB(
+                0, scale8(facePulse, 150), scale8(facePulse, 95));
+
+            const uint8_t foreheadPulse = beatsin8(22, 50, 220);
+            leds1[fronthead] += CRGB(
+                foreheadPulse / 3, foreheadPulse, foreheadPulse);
+            FastLED.show();
+            delay(35);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Multiball — colored particles bounce through the 2D artwork
+    // -----------------------------------------------------------------------
+    void RunMultiballEffect(uint32_t durationMs = 10000)
+    {
+        struct Ball
+        {
+            float x;
+            float y;
+            float vx;
+            float vy;
+            uint8_t hue;
+        };
+        constexpr uint8_t kBallCount = 5;
+        Ball balls[kBallCount];
+        CRGB trails[NUM_LEDS1] = {};
+
+        for (uint8_t b = 0; b < kBallCount; ++b)
+        {
+            balls[b] = {
+                static_cast<float>(random(2, 17)),
+                static_cast<float>(random(2, 13)),
+                (random(0, 2) ? 1.0f : -1.0f) * (0.11f + b * 0.018f),
+                (random(0, 2) ? 1.0f : -1.0f) * (0.08f + b * 0.014f),
+                static_cast<uint8_t>(b * 51)
+            };
+        }
+
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            fadeToBlackBy(trails, NUM_LEDS1, 38);
+
+            for (uint8_t b = 0; b < kBallCount; ++b)
+            {
+                balls[b].x += balls[b].vx;
+                balls[b].y += balls[b].vy;
+                if (balls[b].x <= 0.0f || balls[b].x >= kGridCols - 1)
+                {
+                    balls[b].x = constrain(
+                        balls[b].x, 0.0f, static_cast<float>(kGridCols - 1));
+                    balls[b].vx = -balls[b].vx;
+                }
+                if (balls[b].y <= 0.0f || balls[b].y >= kGridRows - 1)
+                {
+                    balls[b].y = constrain(
+                        balls[b].y, 0.0f, static_cast<float>(kGridRows - 1));
+                    balls[b].vy = -balls[b].vy;
+                }
+
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    const float dx = kLedCoords[i].x - balls[b].x;
+                    const float dy = kLedCoords[i].y - balls[b].y;
+                    const float distance = sqrtf(dx * dx + dy * dy);
+                    if (distance < 2.2f)
+                    {
+                        const uint8_t brightness = static_cast<uint8_t>(
+                            (1.0f - distance / 2.2f) * 255);
+                        trails[i] += CHSV(balls[b].hue, 230, brightness);
+                    }
+                }
+            }
+
+            ::memcpy(leds1, trails, sizeof(trails));
+            FastLED.show();
+            delay(25);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Solar Eclipse — a dark disc crosses a warm moving corona
+    // -----------------------------------------------------------------------
+    void RunSolarEclipseEffect(uint32_t durationMs = 10000)
+    {
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const float progress = (millis() - start) / static_cast<float>(durationMs);
+            const float eclipseX = -4.0f + progress * 26.0f;
+            const float eclipseY = 5.0f + sinf(progress * 6.28318f) * 2.0f;
+            const float discRadius = 3.1f;
+
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float dx = kLedCoords[i].x - eclipseX;
+                const float dy = kLedCoords[i].y - eclipseY;
+                const float distance = sqrtf(dx * dx + dy * dy);
+
+                const uint8_t star = ((i * 37 + 17) % 29 == 0) ? 45 : 5;
+                CRGB color(star, star, static_cast<uint8_t>(star * 0.7f));
+                if (distance < discRadius)
+                {
+                    color = CRGB::Black;
+                }
+                else
+                {
+                    const float coronaDistance = distance - discRadius;
+                    if (coronaDistance < 2.6f)
+                    {
+                        const uint8_t corona = static_cast<uint8_t>(
+                            (1.0f - coronaDistance / 2.6f) * 255);
+                        color += CRGB(corona, scale8(corona, 155),
+                                      scale8(corona, 55));
+                    }
+                }
+                leds1[i] = color;
+            }
+
+            const uint8_t rim = beatsin8(20, 100, 255);
+            leds1[moonTopLeft] += CRGB(rim, rim, scale8(rim, 180));
+            const uint8_t reveal = OpeningStageAmount(
+                millis() - start, 6500, 2200);
+            for (uint8_t p = 0; p < kPlanetCount; ++p)
+            {
+                CRGB planet = kPlanetBaseColors[p];
+                planet.nscale8_video(reveal);
+                leds1[kPlanetIndices[p]] += planet;
+            }
+            CRGB silver(205, 220, 255);
+            silver.nscale8_video(reveal);
+            FillMachineRange(silver);
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Prism Shatter — radial stained-glass facets and white fracture lines
+    // -----------------------------------------------------------------------
+    void RunPrismShatterEffect(uint32_t durationMs = 10000)
+    {
+        constexpr float kCenterX = 9.0f;
+        constexpr float kCenterY = 7.0f;
+        constexpr float kPi = 3.14159265f;
+        constexpr uint8_t kFacetCount = 10;
+        const float facetWidth = (2.0f * kPi) / kFacetCount;
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            const float t = (millis() - start) / 1000.0f;
+            const float cycle = fmodf(t, 3.2f) / 3.2f;
+            const float front = cycle * 14.0f;
+
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float dx = kLedCoords[i].x - kCenterX;
+                const float dy = kLedCoords[i].y - kCenterY;
+                const float radius = sqrtf(dx * dx + dy * dy);
+                float angle = atan2f(dy, dx) + kPi + t * 0.12f;
+                angle = fmodf(angle, 2.0f * kPi);
+                const uint8_t facet = static_cast<uint8_t>(angle / facetWidth);
+                const float withinFacet = fmodf(angle, facetWidth);
+                const float edgeDistance = min(
+                    withinFacet, facetWidth - withinFacet);
+
+                uint8_t brightness = 2;
+                if (radius <= front)
+                {
+                    brightness = static_cast<uint8_t>(
+                        70 + 150 * (1.0f - radius / 14.0f));
+                    brightness = scale8(brightness, static_cast<uint8_t>(
+                        150 + 105 * sinf(t * 2.0f + facet)));
+                }
+
+                leds1[i] = CHSV(facet * (255 / kFacetCount), 235, brightness);
+                if (radius <= front && edgeDistance < 0.08f)
+                    leds1[i] += CRGB(180, 180, 180);
+                if (fabsf(radius - front) < 1.0f)
+                    leds1[i] += CRGB::White;
+            }
+            const uint8_t artwork = OpeningStageAmount(
+                millis() - start, 5200, 2200);
+            for (uint8_t b = 0; b < kBrideLedCount; ++b)
+                leds1[kBrideIndices[b]] += CHSV(
+                    185 + (b % 4) * 12, 170, scale8(artwork, 150));
+            CRGB title = CHSV(static_cast<uint8_t>(t * 14), 120, artwork);
+            FillMachineRange(title);
+            FastLED.show();
+            delay(28);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Crimson Takeover — global red double heartbeat, blackout, golden release
+    // -----------------------------------------------------------------------
+    void RunCrimsonTakeoverEffect(uint32_t durationMs = 9000)
+    {
+        g_globalColorTakeoverActive = true;
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            if (elapsed < 5200)
+            {
+                const uint8_t entry = OpeningStageAmount(elapsed, 0, 1200);
+                const uint8_t heartbeat = GetHeartbeatBrightness(38);
+                const uint8_t brightness = scale8(
+                    lerp8by8(35, 255, entry), heartbeat);
+                fill_solid(leds0, NUM_LEDS0, CRGB(
+                    brightness, 0, scale8(brightness, 22)));
+                fill_solid(leds1, NUM_LEDS1, CRGB(
+                    brightness, 0, scale8(brightness, 35)));
+
+                const float ringRadius = fmodf(elapsed / 210.0f, 13.0f);
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    const float dx = kLedCoords[i].x - 9.0f;
+                    const float dy = kLedCoords[i].y - 7.0f;
+                    const float edge = fabsf(sqrtf(dx * dx + dy * dy) - ringRadius);
+                    if (edge < 1.0f)
+                        leds1[i] += CRGB(110, 20, 55);
+                }
+                leds0[NUM_LEDS0 - 1] = CRGB::White;
+            }
+            else if (elapsed < 5450)
+            {
+                fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+                fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+            }
+            else
+            {
+                fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+                fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+                const uint8_t reveal = OpeningStageAmount(elapsed, 5450, 1800);
+
+                const uint8_t litSegments = static_cast<uint8_t>(
+                    (reveal * kJackpotSegments) / 255);
+                for (uint8_t visual = 0; visual < litSegments; ++visual)
+                {
+                    const uint8_t physical = kJackpotSegments - 1 - visual;
+                    FillJackpotSegment(physical,
+                        blend(CRGB::DarkOrange, CRGB::Gold, reveal));
+                }
+                ::memcpy(leds0, g_jackpotFrame, sizeof(g_jackpotFrame));
+
+                for (uint8_t b = 0; b < kBrideLedCount; ++b)
+                    leds1[kBrideIndices[b]] = CHSV(235, 190, reveal);
+                CRGB title = blend(CRGB::Red, CRGB::Gold, reveal);
+                title.nscale8_video(reveal);
+                FillMachineRange(title);
+                leds1[spotlights1] = CRGB(255, 170, 55);
+                leds1[spotlights2] = CRGB(210, 230, 255);
+                leds0[NUM_LEDS0 - 1] = CRGB::Red;
+                for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
+                    leds0[i] = CRGB::BlueViolet;
+            }
+            FastLED.show();
+            delay(25);
+        }
+        g_globalColorTakeoverActive = false;
+    }
+
+    uint8_t OpeningStageAmount(uint32_t elapsed, uint32_t start, uint32_t duration)
+    {
+        if (elapsed <= start) return 0;
+        if (elapsed >= start + duration) return 255;
+        return static_cast<uint8_t>(((elapsed - start) * 255UL) / duration);
+    }
+
+    // -----------------------------------------------------------------------
+    // Cosmic Alignment — celestial bodies converge before the title ignites
+    // -----------------------------------------------------------------------
+    void RunCosmicOpeningEffect(uint32_t durationMs = 12000)
+    {
+        constexpr float centerX = 9.0f;
+        constexpr float centerY = 6.0f;
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            const float t = elapsed / 1000.0f;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            const uint8_t stars = OpeningStageAmount(elapsed, 0, 1800);
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                if ((i * 43 + 11) % 31 == 0)
+                    leds1[i] = CHSV(150 + i, 45, scale8(stars, beatsin8(9 + i % 5, 30, 150)));
+            }
+
+            const uint8_t orbitAmount = OpeningStageAmount(elapsed, 1200, 4200);
+            const float orbitRadius = 11.0f - orbitAmount / 255.0f * 7.0f;
+            const float orbitAngle = t * 1.8f;
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float dx = kLedCoords[i].x - centerX;
+                const float dy = kLedCoords[i].y - centerY;
+                const float radius = sqrtf(dx * dx + dy * dy);
+                const float angle = atan2f(dy, dx);
+                const float arc = fabsf(sinf((angle - orbitAngle) * 2.0f));
+                if (fabsf(radius - orbitRadius) < 1.4f && arc < 0.38f)
+                    leds1[i] += CHSV(155 + static_cast<uint8_t>(radius * 6), 180, 240);
+            }
+
+            const uint8_t worlds = OpeningStageAmount(elapsed, 4300, 2200);
+            for (uint8_t p = 0; p < kPlanetCount; ++p)
+            {
+                CRGB color = kPlanetBaseColors[p];
+                color.nscale8_video(worlds);
+                leds1[kPlanetIndices[p]] += color;
+            }
+
+            const uint8_t title = OpeningStageAmount(elapsed, 6500, 2600);
+            for (uint8_t i = 0; i < kMachineLedCount; ++i)
+            {
+                const uint8_t delay = i * 18;
+                const uint8_t amount = qsub8(title, delay);
+                CRGB color = blend(CRGB::DeepSkyBlue, CRGB(246, 200, 160), title);
+                color.nscale8_video(amount);
+                leds1[theMachineFirstLed + i] = color;
+            }
+
+            const uint8_t finale = OpeningStageAmount(elapsed, 9000, 1800);
+            for (uint8_t b = 0; b < kBrideLedCount; ++b)
+            {
+                CRGB color = CRGB::BlueViolet;
+                color.nscale8_video(scale8(finale, beatsin8(12, 90, 220)));
+                leds1[kBrideIndices[b]] += color;
+            }
+            if (finale > 180)
+            {
+                FillMachineRange(CRGB(246, 200, 160));
+                for (uint8_t p = 0; p < kPlanetCount; ++p)
+                    leds1[kPlanetIndices[p]] += kPlanetBaseColors[p];
+                leds1[spotlights1] = CRGB(215, 230, 255);
+                leds1[spotlights2] = CRGB(255, 190, 105);
+            }
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Bride Assembly — body systems come online from feet to face
+    // -----------------------------------------------------------------------
+    void RunBrideAssemblyOpeningEffect(uint32_t durationMs = 12000)
+    {
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            const float revealY = 14.0f -
+                OpeningStageAmount(elapsed, 0, 6000) / 255.0f * 14.0f;
+            for (uint8_t b = 0; b < kBrideLedCount; ++b)
+            {
+                const uint8_t index = kBrideIndices[b];
+                if (kLedCoords[index].y >= revealY)
+                {
+                    const float distance = kLedCoords[index].y - revealY;
+                    const uint8_t brightness = distance < 1.5f ? 255 : 90;
+                    leds1[index] = CHSV(
+                        145 + kLedCoords[index].y * 3, 175, brightness);
+                }
+            }
+
+            const uint8_t heart = OpeningStageAmount(elapsed, 2600, 1600);
+            leds0[NUM_LEDS0 - 1] = CRGB(
+                scale8(beatsin8(34, 45, 255), heart), 0, 0);
+
+            const uint8_t eyes = OpeningStageAmount(elapsed, 5200, 1300);
+            for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
+            {
+                CRGB eye = CRGB::BlueViolet;
+                eye.nscale8_video(eyes);
+                leds0[i] = eye;
+            }
+
+            const uint8_t title = OpeningStageAmount(elapsed, 6800, 2200);
+            CRGB titleColor(246, 200, 160);
+            titleColor.nscale8_video(title);
+            FillMachineRange(titleColor);
+
+            const uint8_t power = OpeningStageAmount(elapsed, 9000, 1200);
+            if (power > 0)
+            {
+                for (uint8_t b = 0; b < kBrideLedCount; ++b)
+                    leds1[kBrideIndices[b]] += CHSV(195, 150, scale8(power, beatsin8(18, 30, 130)));
+                leds1[fronthead] += CRGB(power, power, power);
+            }
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Launch Control — jackpot countdown, ignition, launch and shockwave
+    // -----------------------------------------------------------------------
+    void RunLaunchControlOpeningEffect(uint32_t durationMs = 12000)
+    {
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            if (elapsed < 5000)
+            {
+                const uint8_t count = 5 - elapsed / 1000;
+                for (uint8_t segment = 0; segment < count; ++segment)
+                {
+                    const CRGB color = segment == count - 1
+                        ? CRGB::White : CRGB::DarkOrange;
+                    FillJackpotVisualOutputSegment(segment, color);
+                }
+                const uint8_t ignition = OpeningStageAmount(elapsed, 1000, 4000);
+                for (uint8_t i = 0; i < kShuttleLedCount; ++i)
+                {
+                    CRGB flame = blend(CRGB::DarkRed, CRGB::White, ignition);
+                    flame.nscale8_video(random8(150, 255));
+                    leds1[kShuttleFirstLed + i] = flame;
+                }
+            }
+            else
+            {
+                const float launchProgress = min(1.0f, (elapsed - 5000) / 2600.0f);
+                const float headY = 9.0f - launchProgress * 12.0f;
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    const float dx = kLedCoords[i].x;
+                    const float dy = kLedCoords[i].y - headY;
+                    const float distance = sqrtf(dx * dx + dy * dy);
+                    if (distance < 2.4f)
+                        leds1[i] += CHSV(28, 170, static_cast<uint8_t>((1.0f - distance / 2.4f) * 255));
+                }
+
+                const float shockRadius = max(0.0f, (elapsed - 6500) / 320.0f);
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    const float dx = kLedCoords[i].x;
+                    const float dy = kLedCoords[i].y - 8.0f;
+                    const float edge = fabsf(sqrtf(dx * dx + dy * dy) - shockRadius);
+                    if (edge < 1.3f)
+                        leds1[i] += CRGB(255, 150, 45);
+                }
+            }
+
+            const uint8_t title = OpeningStageAmount(elapsed, 8200, 1800);
+            CRGB titleColor(246, 200, 160);
+            titleColor.nscale8_video(title);
+            FillMachineRange(titleColor);
+            FastLED.show();
+            delay(35);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // City Awakening — sunrise, traffic, spotlights and title reveal
+    // -----------------------------------------------------------------------
+    void RunCityAwakeningOpeningEffect(uint32_t durationMs = 12000)
+    {
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            const float sunrise = OpeningStageAmount(elapsed, 0, 5200) / 255.0f;
+            const float horizon = 14.0f - sunrise * 14.0f;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float y = kLedCoords[i].y;
+                if (y >= horizon)
+                {
+                    const uint8_t warmth = static_cast<uint8_t>(
+                        constrain((y - horizon + 1.0f) * 55.0f, 8.0f, 180.0f));
+                    leds1[i] = CRGB(warmth, scale8(warmth, 105), scale8(warmth, 28));
+                }
+            }
+
+            const uint8_t traffic = OpeningStageAmount(elapsed, 2800, 1600);
+            const bool left = (elapsed / 320) % 2 == 0;
+            leds1[carleft1] = leds1[carleft2] =
+                left ? CRGB(traffic, scale8(traffic, 190), 35) : CRGB(20, 10, 2);
+            leds1[carright1] = leds1[carright2] =
+                left ? CRGB(20, 10, 2) : CRGB(traffic, scale8(traffic, 190), 35);
+            leds1[people] = CRGB(traffic, traffic, traffic);
+
+            const uint8_t spots = OpeningStageAmount(elapsed, 5000, 1800);
+            CRGB warm(255, 170, 60);
+            CRGB cool(170, 215, 255);
+            warm.nscale8_video(spots);
+            cool.nscale8_video(spots);
+            leds1[spotlights1] = warm;
+            leds1[spotlights2] = cool;
+
+            const uint8_t title = OpeningStageAmount(elapsed, 6600, 2300);
+            for (uint8_t i = 0; i < kMachineLedCount; ++i)
+            {
+                CRGB color = blend(CRGB::DarkOrange, CRGB(246, 200, 160), title);
+                color.nscale8_video(qsub8(title, i * 14));
+                leds1[theMachineFirstLed + i] = color;
+            }
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // System Diagnostics — RGB test, loop scan and subsystem confirmation
+    // -----------------------------------------------------------------------
+    void RunDiagnosticsOpeningEffect(uint32_t durationMs = 12000)
+    {
+        constexpr uint8_t ringStart[] = { 0, 51, 86 };
+        constexpr uint8_t ringLength[] = { 51, 35, 35 };
+        const uint32_t start = millis();
+
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            if (elapsed < 3000)
+            {
+                const CRGB testColors[] = { CRGB::Red, CRGB::Green, CRGB::Blue };
+                const uint8_t phase = elapsed / 1000;
+                CRGB color = testColors[phase];
+                color.nscale8_video(beatsin8(30, 80, 255));
+                fill_solid(leds1, NUM_LEDS1, color);
+            }
+            else if (elapsed < 7200)
+            {
+                const uint32_t scanTick = (elapsed - 3000) / 35;
+                for (uint8_t ring = 0; ring < 3; ++ring)
+                {
+                    const uint8_t head = scanTick % ringLength[ring];
+                    for (uint8_t p = 0; p < ringLength[ring]; ++p)
+                    {
+                        const uint8_t distance =
+                            (head + ringLength[ring] - p) % ringLength[ring];
+                        const uint8_t brightness = distance < 5
+                            ? static_cast<uint8_t>(255 - distance * 48) : 3;
+                        leds1[ringStart[ring] + p] =
+                            CHSV(96 + ring * 25, 220, brightness);
+                    }
+                }
+            }
+            else
+            {
+                const uint8_t confirmed = OpeningStageAmount(elapsed, 7200, 2200);
+                for (uint8_t b = 0; b < kBrideLedCount; ++b)
+                    leds1[kBrideIndices[b]] = CRGB(0, scale8(confirmed, 170), 25);
+                for (uint8_t p = 0; p < kPlanetCount; ++p)
+                    leds1[kPlanetIndices[p]] = kPlanetBaseColors[p];
+                for (uint8_t s = 0; s < kStreetLedCount; ++s)
+                    leds1[kStreetIndices[s]] = CRGB(0, confirmed, 30);
+                CRGB title(246, 200, 160);
+                title.nscale8_video(confirmed);
+                FillMachineRange(title);
+                fill_solid(leds0, kJackpotLedCount, CRGB(0, scale8(confirmed, 140), 20));
+                leds0[NUM_LEDS0 - 1] = CRGB::Red;
+                for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
+                    leds0[i] = CRGB::BlueViolet;
+            }
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Stellar Transmission — an alien signal scans, locks and decodes the title
+    // -----------------------------------------------------------------------
+    void RunStellarTransmissionOpeningEffect(uint32_t durationMs = 12000)
+    {
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            const float t = elapsed / 1000.0f;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                if ((i * 29 + 7) % 37 == 0)
+                    leds1[i] = CHSV(105 + i, 160, beatsin8(7 + i % 4, 8, 80));
+            }
+
+            const float scanX = fmodf(t * 5.2f, 24.0f) - 3.0f;
+            const float ringSignal = fmodf(t * 1.15f, 3.0f);
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float distance = fabsf(kLedCoords[i].x - scanX);
+                if (distance < 1.5f)
+                    leds1[i] += CHSV(105, 230, static_cast<uint8_t>((1.0f - distance / 1.5f) * 255));
+                const uint8_t ring = i <= 50 ? 0 : (i <= 85 ? 1 : 2);
+                const float ringDistance = fabsf(ringSignal - ring);
+                if (ringDistance < 0.55f)
+                    leds1[i] += CHSV(125 + ring * 18, 210,
+                        static_cast<uint8_t>((1.0f - ringDistance / 0.55f) * 125));
+            }
+
+            const uint8_t lock = OpeningStageAmount(elapsed, 4200, 2200);
+            for (uint8_t p = 0; p < kPlanetCount; ++p)
+            {
+                CRGB signal(0, lock, scale8(lock, 150));
+                leds1[kPlanetIndices[p]] += signal;
+            }
+
+            const uint8_t decoded = OpeningStageAmount(elapsed, 6200, 3000);
+            const uint8_t letters = static_cast<uint8_t>((decoded * kMachineLedCount) / 255);
+            for (uint8_t i = 0; i < letters; ++i)
+            {
+                const bool glitch = elapsed < 8600 && random8() < 38;
+                leds1[theMachineFirstLed + i] =
+                    glitch ? CRGB::White : CRGB(20, 255, 130);
+            }
+
+            const uint8_t accepted = OpeningStageAmount(elapsed, 9200, 1300);
+            for (uint8_t b = 0; b < kBrideLedCount; ++b)
+                leds1[kBrideIndices[b]] += CRGB(0, scale8(accepted, 120), scale8(accepted, 80));
+            FastLED.show();
+            delay(32);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Pulse of Life — the heart sends waves through the bride and artwork
+    // -----------------------------------------------------------------------
+    void RunPulseOfLifeOpeningEffect(uint32_t durationMs = 12000)
+    {
+        constexpr float heartX = 5.0f;
+        constexpr float heartY = 9.0f;
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            const float t = elapsed / 1000.0f;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            const uint8_t heartPower = OpeningStageAmount(elapsed, 0, 2200);
+            const uint8_t heartbeat = scale8(heartPower, GetHeartbeatBrightness(38));
+            leds0[NUM_LEDS0 - 1] = CRGB(heartbeat, 0, scale8(heartbeat, 40));
+
+            const uint8_t globalPower = OpeningStageAmount(elapsed, 900, 2400);
+            const uint8_t globalHeartbeat = scale8(
+                scale8(globalPower, GetHeartbeatBrightness(38)), 185);
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                CRGB pulseColor = blend(
+                    CRGB::DarkRed, CRGB::BlueViolet,
+                    static_cast<uint8_t>(kLedCoords[i].x * 12));
+                pulseColor.nscale8_video(globalHeartbeat);
+                leds1[i] = pulseColor;
+            }
+            for (uint8_t i = 0; i < kJackpotLedCount; ++i)
+            {
+                CRGB pulseColor = CRGB::Red;
+                pulseColor.nscale8_video(globalHeartbeat);
+                leds0[i] = pulseColor;
+            }
+
+            const float waveRadius = fmodf(max(0.0f, t - 1.4f) * 4.2f, 15.0f);
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float dx = kLedCoords[i].x - heartX;
+                const float dy = kLedCoords[i].y - heartY;
+                const float edge = fabsf(sqrtf(dx * dx + dy * dy) - waveRadius);
+                if (edge < 1.5f)
+                    leds1[i] += CHSV(245, 220, static_cast<uint8_t>((1.0f - edge / 1.5f) * heartPower));
+            }
+
+            const uint8_t body = OpeningStageAmount(elapsed, 2800, 3600);
+            for (uint8_t b = 0; b < kBrideLedCount; ++b)
+            {
+                CRGB color = blend(CRGB::DarkRed, CRGB::BlueViolet, kLedCoords[kBrideIndices[b]].y * 16);
+                color.nscale8_video(scale8(body, beatsin8(18, 80, 220)));
+                leds1[kBrideIndices[b]] += color;
+            }
+
+            const uint8_t eyes = OpeningStageAmount(elapsed, 6200, 1200);
+            for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
+            {
+                CRGB color = CRGB::BlueViolet;
+                color.nscale8_video(eyes);
+                leds0[i] = color;
+            }
+
+            const uint8_t title = OpeningStageAmount(elapsed, 7600, 2200);
+            CRGB titleColor(246, 200, 160);
+            titleColor.nscale8_video(title);
+            FillMachineRange(titleColor);
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Moonlight Reveal — moonbeams uncover the bride and silver title
+    // -----------------------------------------------------------------------
+    void RunMoonlightRevealOpeningEffect(uint32_t durationMs = 12000)
+    {
+        const uint32_t start = millis();
+        while (millis() - start < durationMs)
+        {
+            const uint32_t elapsed = millis() - start;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+
+            if (elapsed >= 9000)
+            {
+                const uint8_t breath = beatsin8(7, 5, 28);
+                fill_solid(leds1, NUM_LEDS1,
+                           CRGB(breath / 3, breath / 2, breath));
+            }
+
+            const uint8_t moon = OpeningStageAmount(elapsed, 0, 2200);
+            for (uint8_t i = 0; i < 3; ++i)
+            {
+                CRGB color = i == 2 ? CRGB(255, 225, 150) : CRGB(190, 215, 255);
+                color.nscale8_video(qsub8(moon, i * 35));
+                leds1[moonTopLeft + i] = color;
+            }
+
+            const float beamProgress = OpeningStageAmount(elapsed, 1600, 5000) / 255.0f;
+            const float beamX = 2.0f + beamProgress * 14.0f;
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float expectedX = 2.0f + kLedCoords[i].y * 0.72f;
+                const float distance = fabsf(kLedCoords[i].x - expectedX);
+                if (kLedCoords[i].x <= beamX && distance < 3.0f)
+                {
+                    const uint8_t brightness = static_cast<uint8_t>(
+                        (1.0f - distance / 3.0f) * 115);
+                    leds1[i] += CRGB(brightness, brightness, scale8(brightness, 255));
+                }
+            }
+
+            const uint8_t silhouette = OpeningStageAmount(elapsed, 4200, 2500);
+            for (uint8_t b = 0; b < kBrideLedCount; ++b)
+            {
+                CRGB color(125, 155, 255);
+                color.nscale8_video(scale8(silhouette, beatsin8(10, 90, 210)));
+                leds1[kBrideIndices[b]] += color;
+            }
+
+            const uint8_t title = OpeningStageAmount(elapsed, 7200, 2200);
+            CRGB silver(210, 225, 255);
+            silver.nscale8_video(title);
+            FillMachineRange(silver);
+            const uint8_t eyes = OpeningStageAmount(elapsed, 9000, 1000);
+            for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
+                leds0[i] = CHSV(170, 120, eyes);
+            FastLED.show();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Generic auto-wrapper: snapshot → fade to black → run effect → fade back
     // -----------------------------------------------------------------------
     void RunAutoEffect(void (*effectFn)(uint32_t), uint32_t durationMs = 10000)
     {
+        g_globalColorTakeoverActive = true;
         CRGB snapshotBefore[NUM_LEDS1];
-        memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
+        ::memcpy(snapshotBefore, leds1, sizeof(snapshotBefore));
 
         // Cross-fade to black (500ms)
         const uint32_t dimStart = millis();
@@ -2629,9 +4162,10 @@ namespace
 
         // Cross-fade from end state back to live state (1s)
         CRGB snapshotAfter[NUM_LEDS1];
-        memcpy(snapshotAfter, leds1, sizeof(snapshotAfter));
-        memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
+        ::memcpy(snapshotAfter, leds1, sizeof(snapshotAfter));
+        ::memcpy(leds1, snapshotBefore, sizeof(snapshotBefore));
         CrossFadeFromSnapshot(snapshotAfter, 1000);
+        g_globalColorTakeoverActive = false;
     }
 
     // -----------------------------------------------------------------------
@@ -2657,17 +4191,20 @@ namespace
             case SpecialMode::Plasma:
                 RunAutoEffect(RunPlasmaEffect);
                 break;
-            case SpecialMode::Rain:
-                RunAutoEffect(RunRainEffect);
+            case SpecialMode::LightningStorm:
+                RunAutoEffect(RunLightningStormEffect);
                 break;
-            case SpecialMode::BreathingGrid:
-                RunAutoEffect(RunBreathingGridEffect);
+            case SpecialMode::Multiball:
+                RunAutoEffect(RunMultiballEffect);
                 break;
             case SpecialMode::SpotlightCone:
                 RunAutoEffect(RunSpotlightConeEffect);
                 break;
             case SpecialMode::SpatialMeteor:
                 RunAutoEffect(RunSpatialMeteorEffect);
+                break;
+            case SpecialMode::CrimsonTakeover:
+                RunCrimsonTakeoverEffect(9000);
                 break;
             default:
                 break;
@@ -2686,6 +4223,15 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 
     // Initialise the random-queue scheduler
     g_nextAutoModeTime = millis() + kSchedulerStartupDelayMs;
+    auto finishStartupOpening = []() {
+        if (g_startupOpeningActive)
+        {
+            FadeBothStripsTo(CRGB::Black, CRGB::Black, 450);
+            g_startupOpeningActive = false;
+            g_allStopped = false;
+            Serial.printf("[BOOT] random opening finished; normal animations resumed\n");
+        }
+    };
 
     for (;;)
     {
@@ -2693,8 +4239,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         if (g_sweepRequested)
         {
             g_sweepRequested = false;
-            g_allStopped = true;   // pause other tasks
-            delay(20);             // let them reach their pause point
+            BeginExclusiveScene(CRGB::Black);
 
             SweepDirection dir;
             switch (g_sweepDirection)
@@ -2720,13 +4265,17 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         if (g_radialPulseRequested)
         {
             g_radialPulseRequested = false;
-            g_allStopped = true;
-            delay(20);
+            BeginExclusiveScene(CRGB(0, 0, 6));
 
             RunRadialPulseEffect();
 
-            // Final: all LEDs at warm white
-            fill_solid(leds1, NUM_LEDS1, CRGB(246, 200, 160));
+            // Settle on artwork colors instead of a flat white panel.
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+            FillMachineRange(CRGB(246, 200, 160));
+            for (uint8_t i = 0; i < kPlanetCount; ++i)
+                leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
+            for (uint8_t i = 0; i < kBrideLedCount; ++i)
+                leds1[kBrideIndices[i]] = CRGB(45, 15, 80);
             FastLED.show();
 
             // Stay paused so result is visible; /resume to continue
@@ -2737,8 +4286,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         if (g_plasmaRequested)
         {
             g_plasmaRequested = false;
-            g_allStopped = true;
-            delay(20);
+            BeginExclusiveScene(CRGB(3, 0, 5));
 
             RunPlasmaEffect(10000);
 
@@ -2750,8 +4298,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         if (g_rainRequested)
         {
             g_rainRequested = false;
-            g_allStopped = true;
-            delay(20);
+            BeginExclusiveScene(CRGB(0, 2, 7));
 
             RunRainEffect(10000);
 
@@ -2763,8 +4310,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         if (g_breathingGridRequested)
         {
             g_breathingGridRequested = false;
-            g_allStopped = true;
-            delay(20);
+            BeginExclusiveScene(CRGB(2, 0, 5));
 
             RunBreathingGridEffect(10000);
 
@@ -2776,8 +4322,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         if (g_spotlightConeRequested)
         {
             g_spotlightConeRequested = false;
-            g_allStopped = true;
-            delay(20);
+            BeginExclusiveScene(CRGB(5, 3, 0));
 
             RunSpotlightConeEffect(10000);
 
@@ -2789,12 +4334,209 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
         if (g_spatialMeteorRequested)
         {
             g_spatialMeteorRequested = false;
-            g_allStopped = true;
-            delay(20);
+            BeginExclusiveScene(CRGB(0, 0, 6));
 
             RunSpatialMeteorEffect(10000);
 
             // Stay paused so result is visible; /resume to continue
+            continue;
+        }
+
+        if (g_quantumVortexRequested)
+        {
+            g_quantumVortexRequested = false;
+            BeginExclusiveScene(CRGB(0, 0, 8));
+            Serial.printf("[SCENE] 1 Quantum Vortex started\n");
+            RunQuantumVortexEffect(10000);
+            Serial.printf("[SCENE] 1 Quantum Vortex finished\n");
+            continue;
+        }
+
+        if (g_lightningStormRequested)
+        {
+            g_lightningStormRequested = false;
+            BeginExclusiveScene(CRGB(0, 2, 8));
+            Serial.printf("[SCENE] 2 Lightning Storm started\n");
+            RunLightningStormEffect(10000);
+            Serial.printf("[SCENE] 2 Lightning Storm finished\n");
+            continue;
+        }
+
+        if (g_neonRingsRequested)
+        {
+            g_neonRingsRequested = false;
+            BeginExclusiveScene(CRGB(4, 0, 6));
+            Serial.printf("[SCENE] 3 Neon Rings started\n");
+            RunNeonRingsEffect(10000);
+            Serial.printf("[SCENE] 3 Neon Rings finished\n");
+            continue;
+        }
+
+        if (g_artworkStoryRequested)
+        {
+            g_artworkStoryRequested = false;
+            BeginExclusiveScene(CRGB::Black);
+            Serial.printf("[SCENE] 4 Artwork Story started\n");
+            RunArtworkStoryEffect(12000);
+            Serial.printf("[SCENE] 4 Artwork Story finished\n");
+            continue;
+        }
+
+        if (g_fireworksRequested)
+        {
+            g_fireworksRequested = false;
+            BeginExclusiveScene(CRGB(4, 0, 6));
+            Serial.printf("[SCENE] 5 Fireworks started\n");
+            RunFireworksEffect(10000);
+            Serial.printf("[SCENE] 5 Fireworks finished\n");
+            continue;
+        }
+
+        if (g_laserMatrixRequested)
+        {
+            g_laserMatrixRequested = false;
+            BeginExclusiveScene(CRGB(0, 3, 5));
+            Serial.printf("[SCENE] 6 Laser Matrix started\n");
+            RunLaserMatrixEffect(10000);
+            Serial.printf("[SCENE] 6 Laser Matrix finished\n");
+            continue;
+        }
+
+        if (g_ghostBrideRequested)
+        {
+            g_ghostBrideRequested = false;
+            BeginExclusiveScene(CRGB(0, 5, 4));
+            Serial.printf("[SCENE] 7 Ghost Bride started\n");
+            RunGhostBrideEffect(10000);
+            Serial.printf("[SCENE] 7 Ghost Bride finished\n");
+            continue;
+        }
+
+        if (g_multiballRequested)
+        {
+            g_multiballRequested = false;
+            BeginExclusiveScene(CRGB::Black);
+            Serial.printf("[SCENE] 8 Multiball started\n");
+            RunMultiballEffect(10000);
+            Serial.printf("[SCENE] 8 Multiball finished\n");
+            continue;
+        }
+
+        if (g_solarEclipseRequested)
+        {
+            g_solarEclipseRequested = false;
+            BeginExclusiveScene(CRGB(6, 3, 0));
+            Serial.printf("[SCENE] 9 Solar Eclipse started\n");
+            RunSolarEclipseEffect(10000);
+            Serial.printf("[SCENE] 9 Solar Eclipse finished\n");
+            continue;
+        }
+
+        if (g_prismShatterRequested)
+        {
+            g_prismShatterRequested = false;
+            BeginExclusiveScene(CRGB(3, 0, 5));
+            Serial.printf("[SCENE] 10 Prism Shatter started\n");
+            RunPrismShatterEffect(10000);
+            Serial.printf("[SCENE] 10 Prism Shatter finished\n");
+            continue;
+        }
+
+        if (g_crimsonTakeoverRequested)
+        {
+            g_crimsonTakeoverRequested = false;
+            BeginExclusiveScene(CRGB(12, 0, 1));
+            Serial.printf("[SCENE] Crimson Takeover started\n");
+            RunCrimsonTakeoverEffect(9000);
+            Serial.printf("[SCENE] Crimson Takeover finished\n");
+            continue;
+        }
+
+        if (g_cosmicOpeningRequested)
+        {
+            g_cosmicOpeningRequested = false;
+            BeginExclusiveScene(CRGB(0, 0, 6));
+            Serial.printf("[OPENING] 2 Cosmic Alignment started\n");
+            RunCosmicOpeningEffect(12000);
+            Serial.printf("[OPENING] 2 Cosmic Alignment finished\n");
+            finishStartupOpening();
+            continue;
+        }
+
+        if (g_brideAssemblyOpeningRequested)
+        {
+            g_brideAssemblyOpeningRequested = false;
+            BeginExclusiveScene(CRGB(4, 0, 8));
+            Serial.printf("[OPENING] 3 Bride Assembly started\n");
+            RunBrideAssemblyOpeningEffect(12000);
+            Serial.printf("[OPENING] 3 Bride Assembly finished\n");
+            finishStartupOpening();
+            continue;
+        }
+
+        if (g_launchControlOpeningRequested)
+        {
+            g_launchControlOpeningRequested = false;
+            BeginExclusiveScene(CRGB(8, 2, 0));
+            Serial.printf("[OPENING] 4 Launch Control started\n");
+            RunLaunchControlOpeningEffect(12000);
+            Serial.printf("[OPENING] 4 Launch Control finished\n");
+            finishStartupOpening();
+            continue;
+        }
+
+        if (g_cityAwakeningOpeningRequested)
+        {
+            g_cityAwakeningOpeningRequested = false;
+            BeginExclusiveScene(CRGB(6, 2, 0));
+            Serial.printf("[OPENING] 5 City Awakening started\n");
+            RunCityAwakeningOpeningEffect(12000);
+            Serial.printf("[OPENING] 5 City Awakening finished\n");
+            finishStartupOpening();
+            continue;
+        }
+
+        if (g_diagnosticsOpeningRequested)
+        {
+            g_diagnosticsOpeningRequested = false;
+            BeginExclusiveScene(CRGB::Black);
+            Serial.printf("[OPENING] 6 System Diagnostics started\n");
+            RunDiagnosticsOpeningEffect(12000);
+            Serial.printf("[OPENING] 6 System Diagnostics finished\n");
+            finishStartupOpening();
+            continue;
+        }
+
+        if (g_stellarTransmissionOpeningRequested)
+        {
+            g_stellarTransmissionOpeningRequested = false;
+            BeginExclusiveScene(CRGB(0, 5, 4));
+            Serial.printf("[OPENING] 7 Stellar Transmission started\n");
+            RunStellarTransmissionOpeningEffect(12000);
+            Serial.printf("[OPENING] 7 Stellar Transmission finished\n");
+            finishStartupOpening();
+            continue;
+        }
+
+        if (g_pulseOfLifeOpeningRequested)
+        {
+            g_pulseOfLifeOpeningRequested = false;
+            BeginExclusiveScene(CRGB(8, 0, 2));
+            Serial.printf("[OPENING] 8 Pulse of Life started\n");
+            RunPulseOfLifeOpeningEffect(12000);
+            Serial.printf("[OPENING] 8 Pulse of Life finished\n");
+            finishStartupOpening();
+            continue;
+        }
+
+        if (g_moonlightRevealOpeningRequested)
+        {
+            g_moonlightRevealOpeningRequested = false;
+            BeginExclusiveScene(CRGB(0, 2, 8));
+            Serial.printf("[OPENING] 9 Moonlight Reveal started\n");
+            RunMoonlightRevealOpeningEffect(12000);
+            Serial.printf("[OPENING] 9 Moonlight Reveal finished\n");
+            finishStartupOpening();
             continue;
         }
 
@@ -2874,13 +4616,15 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
             continue;
         }
 
-        if (!g_allStopped && !g_showcaseActive && !g_awakeningActive)
+        if (!g_allStopped && !g_showcaseActive && !g_awakeningActive &&
+            !g_globalColorTakeoverActive)
         {
             Heartbeat(0);
         }
         EVERY_N_SECONDS(kGlobalHeartIntervalSeconds)
         {
-            if (!g_allStopped && !g_showcaseActive && !g_awakeningActive)
+            if (!g_allStopped && !g_showcaseActive && !g_awakeningActive &&
+                !g_globalColorTakeoverActive)
             {
                 RunGlobalHeartMode();
             }
@@ -2911,7 +4655,9 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
             continue;
         }
 
-        if (!g_allStopped && !g_globalHeartActive && !g_showcaseActive && !g_jackpotCelebrationActive && !g_awakeningActive)
+        if (!g_allStopped && !g_globalHeartActive && !g_showcaseActive &&
+            !g_jackpotCelebrationActive && !g_awakeningActive &&
+            !g_globalColorTakeoverActive)
         {
             UpdateJackpotAnimations();
         }
@@ -2923,13 +4669,31 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
 // the machine logo
 void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 {
-    MachineMode currentActiveMode = MachineMode::Showcase;
-    MachineMode currentMode = currentActiveMode;
+    MachineMode currentActiveMode = g_startupOpeningSelection == 1
+        ? MachineMode::Showcase : MachineMode::Rainbow;
+    MachineMode currentMode = g_startupOpeningSelection == 1
+        ? MachineMode::Showcase : MachineMode::Idle;
     uint32_t lastModeChange = millis();
 
     for (;;)
     {
-        if (g_allStopped || g_globalHeartActive || g_awakeningActive)
+        if (g_openingShowcaseRequested)
+        {
+            g_openingShowcaseRequested = false;
+            g_allStopped = true;
+            FadeBothStripsTo(CRGB::Black, CRGB::Black, 500);
+            currentActiveMode = MachineMode::Showcase;
+            currentMode = MachineMode::Showcase;
+            lastModeChange = millis();
+            ResetShowcaseState();
+            g_showcaseReviewActive = true;
+            g_showcaseActive = true;
+            g_allStopped = false;
+            Serial.printf("[OPENING] 1 Improved Fluorescent Showcase started\n");
+        }
+
+        if (g_allStopped || g_globalHeartActive || g_awakeningActive ||
+            g_globalColorTakeoverActive)
         {
             PostDrawHandler();
             continue;

@@ -35,6 +35,26 @@ class ApiWebServer
         _server.on("/breathinggrid",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->breathingGrid(pRequest); });
         _server.on("/spotlightcone",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->spotlightCone(pRequest); });
         _server.on("/spatialmeteor",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->spatialMeteor(pRequest); });
+        _server.on("/vortex",          HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->quantumVortex(pRequest); });
+        _server.on("/lightning",       HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->lightningStorm(pRequest); });
+        _server.on("/neonrings",       HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->neonRings(pRequest); });
+        _server.on("/artworkstory",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->artworkStory(pRequest); });
+        _server.on("/fireworks",       HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->fireworks(pRequest); });
+        _server.on("/lasergrid",       HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->laserMatrix(pRequest); });
+        _server.on("/ghostbride",      HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->ghostBride(pRequest); });
+        _server.on("/multiball",       HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->multiball(pRequest); });
+        _server.on("/eclipse",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->solarEclipse(pRequest); });
+        _server.on("/prismshatter",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->prismShatter(pRequest); });
+        _server.on("/crimsontakeover", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->crimsonTakeover(pRequest); });
+        _server.on("/opening-showcase", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->openingShowcase(pRequest); });
+        _server.on("/opening-cosmic",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->cosmicOpening(pRequest); });
+        _server.on("/opening-bride",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->brideOpening(pRequest); });
+        _server.on("/opening-launch",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->launchOpening(pRequest); });
+        _server.on("/opening-city",     HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->cityOpening(pRequest); });
+        _server.on("/opening-diagnostics", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->diagnosticsOpening(pRequest); });
+        _server.on("/opening-transmission", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->transmissionOpening(pRequest); });
+        _server.on("/opening-pulse",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->pulseOpening(pRequest); });
+        _server.on("/opening-moonlight", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->moonlightOpening(pRequest); });
 
         _server.begin();
         debugI("HTTP server started");
@@ -51,8 +71,15 @@ class ApiWebServer
           AsyncWebParameter * p = pRequest->getParam(pszEffectIndex, false, false);
           size_t index = strtoul(p->value().c_str(), NULL, 10); 
           debugI("index = %d", index);
-          leds1[index] = CRGB::White;
-          FastLED.show();
+          if (index < NUM_LEDS1)
+          {
+              leds1[index] = CRGB::White;
+              FastLED.show();
+          }
+          else
+          {
+              debugW("setLed: index %u out of range (NUM_LEDS1=%u)", index, NUM_LEDS1);
+          }
         } 
         else 
         {
@@ -187,6 +214,144 @@ class ApiWebServer
     {
         debugI("Spatial meteor triggered via API");
         RunSpatialMeteor();
+        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
+        pResponse->addHeader("Access-Control-Allow-Origin", "*");
+        pRequest->send(pResponse);
+    }
+
+    void quantumVortex(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Quantum vortex triggered via API");
+        RunQuantumVortex();
+        sendOk(pRequest);
+    }
+
+    void lightningStorm(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Lightning storm triggered via API");
+        RunLightningStorm();
+        sendOk(pRequest);
+    }
+
+    void neonRings(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Neon rings triggered via API");
+        RunNeonRings();
+        sendOk(pRequest);
+    }
+
+    void artworkStory(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Artwork story triggered via API");
+        RunArtworkStory();
+        sendOk(pRequest);
+    }
+
+    void fireworks(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Fireworks triggered via API");
+        RunFireworks();
+        sendOk(pRequest);
+    }
+
+    void laserMatrix(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Laser matrix triggered via API");
+        RunLaserMatrix();
+        sendOk(pRequest);
+    }
+
+    void ghostBride(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Ghost bride triggered via API");
+        RunGhostBride();
+        sendOk(pRequest);
+    }
+
+    void multiball(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Multiball triggered via API");
+        RunMultiball();
+        sendOk(pRequest);
+    }
+
+    void solarEclipse(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Solar eclipse triggered via API");
+        RunSolarEclipse();
+        sendOk(pRequest);
+    }
+
+    void prismShatter(AsyncWebServerRequest * pRequest)
+    {
+        debugI("Prism shatter triggered via API");
+        RunPrismShatter();
+        sendOk(pRequest);
+    }
+
+    void crimsonTakeover(AsyncWebServerRequest * pRequest)
+    {
+        RunCrimsonTakeover();
+        sendOk(pRequest);
+    }
+
+    void openingShowcase(AsyncWebServerRequest * pRequest)
+    {
+        RunOpeningShowcase();
+        sendOk(pRequest);
+    }
+
+    void cosmicOpening(AsyncWebServerRequest * pRequest)
+    {
+        RunCosmicOpening();
+        sendOk(pRequest);
+    }
+
+    void brideOpening(AsyncWebServerRequest * pRequest)
+    {
+        RunBrideAssemblyOpening();
+        sendOk(pRequest);
+    }
+
+    void launchOpening(AsyncWebServerRequest * pRequest)
+    {
+        RunLaunchControlOpening();
+        sendOk(pRequest);
+    }
+
+    void cityOpening(AsyncWebServerRequest * pRequest)
+    {
+        RunCityAwakeningOpening();
+        sendOk(pRequest);
+    }
+
+    void diagnosticsOpening(AsyncWebServerRequest * pRequest)
+    {
+        RunDiagnosticsOpening();
+        sendOk(pRequest);
+    }
+
+    void transmissionOpening(AsyncWebServerRequest * pRequest)
+    {
+        RunStellarTransmissionOpening();
+        sendOk(pRequest);
+    }
+
+    void pulseOpening(AsyncWebServerRequest * pRequest)
+    {
+        RunPulseOfLifeOpening();
+        sendOk(pRequest);
+    }
+
+    void moonlightOpening(AsyncWebServerRequest * pRequest)
+    {
+        RunMoonlightRevealOpening();
+        sendOk(pRequest);
+    }
+
+  private:
+    void sendOk(AsyncWebServerRequest * pRequest)
+    {
         AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);

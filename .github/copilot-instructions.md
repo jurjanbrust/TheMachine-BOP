@@ -20,6 +20,13 @@ This document describes the hardware layout, LED zones, animation modes, and arc
 
 One continuous WS2812B strip that starts at index 0 (top-left) and snakes clockwise inward in three loops to index 120 (center).
 
+**Canonical layout reference:** See [`docs/LED-LAYOUT.md`](../docs/LED-LAYOUT.md).
+It combines the authoritative `leds.xlsx` index grid with the player-facing
+photo `IMG_2055.JPG`, the mirrored rear/inside photo `IMG_2054.JPG`, and the
+runtime `kLedCoords` mapping. For all effects, left/right and `(x,y)` directions
+are defined from the player-facing artwork view. Use coordinates for spatial
+effects and raw index order only when an effect should follow the physical wire.
+
 (strip 1)
 0--------------------------18 
                             |
@@ -111,6 +118,9 @@ Cycles through active modes, with an **Idle** rest period between each. Each act
 ### Jackpot Ring Modes (`JackpotMode`)
 
 The jackpot ring (48 LEDs on strip 0) cycles through animation modes. Most modes run for 15 seconds; DimmedHold runs for 60 seconds. Output is dimmed (scaled to 80/255) when `dimOutput` is true or during Showcase.
+Artwork segments are addressed in visible order 1→8 using
+`kJackpotVisualToPhysical = {7,6,5,4,3,2,1,0}`; do not assume physical strip
+order matches the numbered ladder.
 
 | Mode | Interval | Description |
 |---|---|---|
@@ -150,7 +160,7 @@ The 5 street LEDs (people + 4 cars) cycle through modes every 12 seconds.
 | Mode | Description |
 |---|---|
 | **Pulse** | All 5 street LEDs pulse white in unison (24 BPM sine wave) |
-| **Runner** | *(Defined in enum but no dedicated render function — falls through to default)* |
+| **Runner** | A bright white lead pixel runs across people and car positions with a fading blue tail |
 | **Sparkle** | Random colorful sparkle bursts with per-LED fade decay on the street elements |
 | **CarHeadlights** | Cars alternate left/right pairs in warm yellow (255,200,60) like passing traffic, with the opposite pair dimmed. People LED breathes gently alongside |
 
@@ -238,7 +248,7 @@ Four LEDs near the end of strip 0 — initialized to BlueViolet at startup, then
 
 ### Radial Pulse
 
-Triggered via HTTP API (`/radialpulse`) or automatically via the random queue scheduler. A 3-second sonar-like ripple that expands from the center of the 19×15 grid outward. Three concentric rings with a subtle rainbow tint emanate outward, each staggered by 0.25 phase. When HTTP-triggered, pauses all animations and ends with warm-white fill. When auto-triggered, smoothly cross-fades from the current animation state to black (500ms), plays the ripple, then cross-fades back to the live animation state (1s).
+Triggered via HTTP API (`/radialpulse`) or automatically via the random queue scheduler. A 3-second sonar-like ripple that expands from the center of the 19×15 grid outward. Three concentric rings with a subtle rainbow tint emanate outward, each staggered by 0.25 phase. When HTTP-triggered, pauses all animations and settles on semantic artwork colors. When auto-triggered, smoothly cross-fades from the current animation state to black (500ms), plays the ripple, then cross-fades back to the live animation state (1s).
 
 ### Auto Sweep
 
@@ -266,22 +276,36 @@ Triggered via HTTP API (`/awakening`) or automatically via the random queue sche
 
 Instead of fixed-interval timers, all auto-triggered special modes are managed by a centralized random queue scheduler running on Task 1. The pool of modes is:
 
-**Radial Pulse, Sweep, Jackpot Celebration, Awakening, Plasma, Rain, Breathing Grid, Spotlight Cone, Spatial Meteor** (9 total)
+**Radial Pulse, Sweep, Jackpot Celebration, Awakening, Plasma, Lightning
+Storm, Multiball, Spotlight Cone, Spatial Meteor, Crimson Takeover** (10 total)
 
 **How it works:**
-1. A shuffled queue of all 9 modes is built (Fisher-Yates shuffle). Each mode plays once before any repeats.
+1. A shuffled queue of all 10 modes is built (Fisher-Yates shuffle). Each mode plays once before any repeats.
 2. After each mode finishes, a random cooldown of **3–8 minutes** (`kSchedulerCooldownMinMs`–`kSchedulerCooldownMaxMs`) elapses before the next one fires.
 3. When the queue is exhausted, it reshuffles and starts over — ensuring variety.
 4. A **2-minute startup delay** (`kSchedulerStartupDelayMs`) prevents modes from firing immediately after boot.
 5. Jackpot and Awakening are triggered via their `Requested` flags so they still execute on their own FreeRTOS tasks (Task 3 and Task 2 respectively).
-6. Strip-1 effects (Plasma, Rain, Breathing Grid, Spotlight Cone, Spatial Meteor) use a generic auto-wrapper that snapshots the current state, cross-fades to black, runs the effect, then cross-fades back.
-7. HTTP-triggered modes still work independently at any time.
+6. Strip-1 effects use a generic auto-wrapper that pauses competing tasks,
+   snapshots the current state, cross-fades to black, runs the effect, then
+   cross-fades back.
+7. Rain and Breathing Grid remain available manually but are intentionally
+   excluded from automatic rotation.
+8. HTTP-triggered modes still work independently at any time.
 
 ---
 
 ## Static Startup State
 
-On boot, both strips start fully dark (black). The Machine logo task begins in **Showcase** mode, which runs the 10-second fluorescent tube flicker sequence as the theatrical power-on reveal. After the flicker completes, the spotlights lock on, the logo and planets ramp up, and then a warm-white diagonal sweep (bottom-right to top-left) fills the entire backglass. Have a pause for 4 seconds. Once Showcase finishes, the normal mode rotation continues (Idle → Rainbow → ...), but is uses a smooth transition from the current colors instead of an abrupt switch.
+On boot, both strips start fully dark and `PrepareRandomStartupOpening()` uses
+the ESP32 hardware RNG (`esp_random()`) to select one of all 9 opening scenes.
+The selected scene owns both strips while it runs and automatically releases
+them to normal animation afterward. The choice is logged as
+`[BOOT] randomly selected opening N of 9`.
+
+The opening pool is: Improved Fluorescent Showcase, Cosmic Alignment, Bride
+Assembly, Launch Control, City Awakening, System Diagnostics, Stellar
+Transmission, Pulse of Life and Moonlight Reveal. All openings can also be
+replayed using serial commands `11` through `19` or their HTTP endpoints.
 
 ---
 
@@ -300,6 +324,26 @@ On boot, both strips start fully dark (black). The Machine logo task begins in *
 | `/breathinggrid` | GET | *(none)* | 10-second diagonal breathing wave — all LEDs breathe with spatial phase offset creating a rolling brightness wave |
 | `/spotlightcone` | GET | *(none)* | 10-second spotlight cone effect — two spotlights cast pulsing light cones (warm amber + cool white) across the panel |
 | `/spatialmeteor` | GET | *(none)* | 10-second spatial meteor shower — up to 5 meteors travel at diagonal angles across the grid with fading trails |
+| `/vortex` | GET | *(none)* | 10-second quantum vortex — rotating spiral arms collapse into a pulsing white core |
+| `/lightning` | GET | *(none)* | 10-second lightning storm — randomized jagged bolts, electric-blue afterglow and sky flashes |
+| `/neonrings` | GET | *(none)* | 10-second neon rings — the outer, middle and inner physical strip loops counter-rotate independently |
+| `/artworkstory` | GET | *(none)* | 12-second semantic reveal — moon, shuttle, bride, eyes, planets, logo, street, jackpot and heart tell a staged story |
+| `/fireworks` | GET | *(none)* | 10-second fireworks show — launches rise from the horizon and burst spatially across the artwork |
+| `/lasergrid` | GET | *(none)* | 10-second laser matrix — cyan and magenta scanner beams cross with bright white intersections |
+| `/ghostbride` | GET | *(none)* | 10-second spectral bride — ectoplasm travels through the bride outline while her eyes and heart glow |
+| `/multiball` | GET | *(none)* | 10-second multiball simulation — five colored particles bounce through the spatial layout with fading trails |
+| `/eclipse` | GET | *(none)* | 10-second solar eclipse — a dark disc and warm corona travel across a dim star field |
+| `/prismshatter` | GET | *(none)* | 10-second prism shatter — rotating stained-glass facets and white fracture lines burst from the center |
+| `/crimsontakeover` | GET | *(none)* | 9-second full-display crimson double heartbeat, blackout and golden artwork release |
+| `/opening-showcase` | GET | *(none)* | Replay the improved fluorescent opening with independent warm/cool spotlights and a chromatic artwork reveal |
+| `/opening-cosmic` | GET | *(none)* | 12-second Cosmic Alignment opening — stars, orbiting energy, planets, title and bride align |
+| `/opening-bride` | GET | *(none)* | 12-second Bride Assembly opening — body, heart, eyes, title and forehead power up in stages |
+| `/opening-launch` | GET | *(none)* | 12-second Launch Control opening — jackpot countdown, shuttle ignition, launch and shockwave |
+| `/opening-city` | GET | *(none)* | 12-second City Awakening opening — sunrise, traffic, dual-color spotlights and title reveal |
+| `/opening-diagnostics` | GET | *(none)* | 12-second System Diagnostics opening — RGB test, loop scan and subsystem confirmation |
+| `/opening-transmission` | GET | *(none)* | 12-second Stellar Transmission opening — star field, scanning signal, planet lock and decoded title |
+| `/opening-pulse` | GET | *(none)* | 12-second Pulse of Life opening — double heartbeat pulses across both strips before the bride and title awaken |
+| `/opening-moonlight` | GET | *(none)* | 12-second Moonlight Reveal opening — moonbeam uncovers the bride, silver title and eyes |
 
 ---
 

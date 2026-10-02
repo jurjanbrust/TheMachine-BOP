@@ -13,6 +13,10 @@ TaskHandle_t g_taskScreen = nullptr;
 TaskHandle_t g_taskSync   = nullptr;
 TaskHandle_t g_taskWeb    = nullptr;
 TaskHandle_t g_taskDraw   = nullptr;
+TaskHandle_t g_taskHeart  = nullptr;
+TaskHandle_t g_taskJackpot = nullptr;
+TaskHandle_t g_taskMachine = nullptr;
+TaskHandle_t g_taskSerial = nullptr;
 TaskHandle_t g_taskDebug  = nullptr;
 TaskHandle_t g_taskAudio  = nullptr;
 TaskHandle_t g_taskNet    = nullptr;
@@ -60,6 +64,82 @@ void SaveBrightness(uint8_t value)
     }
 }
 
+void ProcessSerialSceneCommand()
+{
+    static String command;
+
+    while (Serial.available() > 0)
+    {
+        const char input = static_cast<char>(Serial.read());
+        if (input != '\n' && input != '\r')
+        {
+            command += input;
+            continue;
+        }
+
+        command.trim();
+        if (command.length() == 0)
+            continue;
+
+        if (command == "1" || command.equalsIgnoreCase("vortex"))
+            RunQuantumVortex();
+        else if (command == "2" || command.equalsIgnoreCase("lightning"))
+            RunLightningStorm();
+        else if (command == "3" || command.equalsIgnoreCase("neonrings"))
+            RunNeonRings();
+        else if (command == "4" || command.equalsIgnoreCase("artworkstory"))
+            RunArtworkStory();
+        else if (command == "5" || command.equalsIgnoreCase("fireworks"))
+            RunFireworks();
+        else if (command == "6" || command.equalsIgnoreCase("lasergrid"))
+            RunLaserMatrix();
+        else if (command == "7" || command.equalsIgnoreCase("ghostbride"))
+            RunGhostBride();
+        else if (command == "8" || command.equalsIgnoreCase("multiball"))
+            RunMultiball();
+        else if (command == "9" || command.equalsIgnoreCase("eclipse"))
+            RunSolarEclipse();
+        else if (command == "10" || command.equalsIgnoreCase("prismshatter"))
+            RunPrismShatter();
+        else if (command == "22" || command.equalsIgnoreCase("crimsontakeover"))
+            RunCrimsonTakeover();
+        else if (command == "11" || command.equalsIgnoreCase("opening-showcase"))
+            RunOpeningShowcase();
+        else if (command == "12" || command.equalsIgnoreCase("opening-cosmic"))
+            RunCosmicOpening();
+        else if (command == "13" || command.equalsIgnoreCase("opening-bride"))
+            RunBrideAssemblyOpening();
+        else if (command == "14" || command.equalsIgnoreCase("opening-launch"))
+            RunLaunchControlOpening();
+        else if (command == "15" || command.equalsIgnoreCase("opening-city"))
+            RunCityAwakeningOpening();
+        else if (command == "16" || command.equalsIgnoreCase("opening-diagnostics"))
+            RunDiagnosticsOpening();
+        else if (command == "17" || command.equalsIgnoreCase("opening-transmission"))
+            RunStellarTransmissionOpening();
+        else if (command == "18" || command.equalsIgnoreCase("opening-pulse"))
+            RunPulseOfLifeOpening();
+        else if (command == "19" || command.equalsIgnoreCase("opening-moonlight"))
+            RunMoonlightRevealOpening();
+        else if (command.equalsIgnoreCase("resume"))
+            SetAllStopped(false);
+        else
+            Serial.printf("[SERIAL] unknown command: %s\n", command.c_str());
+
+        Serial.printf("[SERIAL] command accepted: %s\n", command.c_str());
+        command = "";
+    }
+}
+
+void SerialSceneTaskEntry(void *)
+{
+    for (;;)
+    {
+        ProcessSerialSceneCommand();
+        delay(10);
+    }
+}
+
 // DebugLoopTaskEntry
 //
 // Entry point for the Debug task, pumps the Debug handler
@@ -95,37 +175,58 @@ void setup() {
 
     Serial.begin(115200);
     esp_log_level_set("*", ESP_LOG_WARN);        // set all components to ERROR level  
-
-    if (WiFi.isConnected() == false && ConnectToWiFi(10) == false)
-    {
-        Serial.printf("Not connected");
-    }
+    Serial.printf("[BOOT] setup started at %lu ms\n", millis());
 
     // Re-route debug output to the serial port
     Debug.setSerialEnabled(true);
 
-    debugI("Starting DebugLoopTaskEntry");
-    xTaskCreatePinnedToCore(DebugLoopTaskEntry, "Debug Loop", STACK_SIZE, nullptr, DEBUG_PRIORITY, &g_taskDebug, DEBUG_CORE);
-
-    debugI("Adding %d LEDs to FastLED.", NUM_LEDS0);
+    Serial.printf("[BOOT] registering LED strips\n");
     FastLED.addLeds<WS2812B, LED_PIN0, GRB>(leds0, NUM_LEDS0);  // been
 
-    debugI("Adding %d LEDs to FastLED.", NUM_LEDS0);
     FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
     const uint8_t startupBrightness = LoadSavedBrightness();
     FastLED.setBrightness(startupBrightness);
-    debugI("Startup brightness set to %u", startupBrightness);
+    Serial.printf("[BOOT] brightness=%u\n", startupBrightness);
 
-    // Start dark — Showcase mode handles the theatrical reveal:
-    // flicker → logo/planets ramp → right-to-left sweep
+    // Start dark; one of the nine theatrical openings owns both strips.
     fill_solid(leds0, NUM_LEDS0, CRGB::Black);
     fill_solid(leds1, NUM_LEDS1, CRGB::Black);
     FastLED.show();
+    const uint8_t startupOpening = PrepareRandomStartupOpening();
+    Serial.printf("[BOOT] randomly selected opening %u of 9\n", startupOpening);
 
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryOne, "Shuttle", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryTwo, "Heart", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryThree, "Jackpot", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
-    xTaskCreatePinnedToCore(DrawLoopTaskEntryFour, "TheMachine", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    const BaseType_t shuttleResult = xTaskCreatePinnedToCore(
+        DrawLoopTaskEntryOne, "Shuttle", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskDraw, DRAWING_CORE);
+    const BaseType_t heartResult = xTaskCreatePinnedToCore(
+        DrawLoopTaskEntryTwo, "Heart", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskHeart, DRAWING_CORE);
+    const BaseType_t jackpotResult = xTaskCreatePinnedToCore(
+        DrawLoopTaskEntryThree, "Jackpot", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskJackpot, DRAWING_CORE);
+    const BaseType_t machineResult = xTaskCreatePinnedToCore(
+        DrawLoopTaskEntryFour, "TheMachine", STACK_SIZE, nullptr, DRAWING_PRIORITY, &g_taskMachine, DRAWING_CORE);
+    Serial.printf(
+        "[BOOT] drawing tasks shuttle=%ld heart=%ld jackpot=%ld machine=%ld (pdPASS=%ld)\n",
+        static_cast<long>(shuttleResult),
+        static_cast<long>(heartResult),
+        static_cast<long>(jackpotResult),
+        static_cast<long>(machineResult),
+        static_cast<long>(pdPASS));
+
+    const BaseType_t serialResult = xTaskCreatePinnedToCore(
+        SerialSceneTaskEntry, "Serial Scenes", STACK_SIZE, nullptr,
+        REMOTE_PRIORITY, &g_taskSerial, NET_CORE);
+    Serial.printf("[BOOT] serial scene task=%ld (pdPASS=%ld)\n",
+                  static_cast<long>(serialResult), static_cast<long>(pdPASS));
+
+    const BaseType_t debugResult = xTaskCreatePinnedToCore(
+        DebugLoopTaskEntry, "Debug Loop", STACK_SIZE, nullptr, DEBUG_PRIORITY, &g_taskDebug, DEBUG_CORE);
+    Serial.printf("[BOOT] debug task=%ld (pdPASS=%ld)\n",
+                  static_cast<long>(debugResult), static_cast<long>(pdPASS));
+
+    Serial.printf("[BOOT] starting WiFi connection; LED tasks are already running\n");
+    if (!WiFi.isConnected() && !ConnectToWiFi(10))
+    {
+        Serial.printf("[BOOT] WiFi not connected; LED animations continue\n");
+    }
 }
 
 void loop() {

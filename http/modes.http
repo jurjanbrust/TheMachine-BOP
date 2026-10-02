@@ -45,8 +45,71 @@ GET http://192.168.10.99/spotlightcone
 ### Spatial Meteor Shower
 GET http://192.168.10.99/spatialmeteor
 
+### NEW: Quantum Vortex - rotating spiral arms collapse into a white core
+GET http://192.168.10.99/vortex
+
+### NEW: Lightning Storm - jagged bolts, blue afterglow and sky flashes
+GET http://192.168.10.99/lightning
+
+### NEW: Neon Rings - three physical loops counter-rotate
+GET http://192.168.10.99/neonrings
+
+### NEW: Artwork Story - staged semantic reveal including strip 0
+GET http://192.168.10.99/artworkstory
+
+### NEW: Fireworks - launches from the horizon into spatial bursts
+GET http://192.168.10.99/fireworks
+
+### NEW: Laser Matrix - crossing cyan and magenta scanner beams
+GET http://192.168.10.99/lasergrid
+
+### NEW: Ghost Bride - spectral animation isolated to the bride artwork
+GET http://192.168.10.99/ghostbride
+
+### NEW: Multiball - colored balls bounce through the spatial layout
+GET http://192.168.10.99/multiball
+
+### NEW: Solar Eclipse - a dark celestial body crosses a glowing corona
+GET http://192.168.10.99/eclipse
+
+### NEW: Prism Shatter - stained-glass shards burst from the center
+GET http://192.168.10.99/prismshatter
+
+### NEW: Crimson Takeover - full-display red heartbeat and golden release
+GET http://192.168.10.99/crimsontakeover
+
+### OPENING 1: Improved Fluorescent Showcase
+GET http://192.168.10.99/opening-showcase
+
+### OPENING 2: Cosmic Alignment
+GET http://192.168.10.99/opening-cosmic
+
+### OPENING 3: Bride Assembly
+GET http://192.168.10.99/opening-bride
+
+### OPENING 4: Launch Control
+GET http://192.168.10.99/opening-launch
+
+### OPENING 5: City Awakening
+GET http://192.168.10.99/opening-city
+
+### OPENING 6: System Diagnostics
+GET http://192.168.10.99/opening-diagnostics
+
+### OPENING 7: Stellar Transmission
+GET http://192.168.10.99/opening-transmission
+
+### OPENING 8: Pulse of Life
+GET http://192.168.10.99/opening-pulse
+
+### OPENING 9: Moonlight Reveal
+GET http://192.168.10.99/opening-moonlight
+
 ### Jackpot
 GET http://192.168.10.99/jackpot
 
 ### Awakening
 GET http://192.168.10.99/awakening
+
+### Resume normal animations after testing a mode
+GET http://192.168.10.99/resume
