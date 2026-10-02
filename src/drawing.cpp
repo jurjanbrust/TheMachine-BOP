@@ -92,6 +92,7 @@ namespace
         SpotlightCone,
         SpatialMeteor,
         CrimsonTakeover,
+        PlanetaryConjunction,
         COUNT  // must be last
     };
     constexpr uint8_t kSpecialModeCount = static_cast<uint8_t>(SpecialMode::COUNT);
@@ -4446,6 +4447,9 @@ namespace
                 break;
             case SpecialMode::CrimsonTakeover:
                 RunCrimsonTakeoverEffect(kAutoEffectDurationMs);
+                break;
+            case SpecialMode::PlanetaryConjunction:
+                RunAutoEffect(RunPlanetaryConjunctionEffect, 20000);
                 break;
             default:
                 break;

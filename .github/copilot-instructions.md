@@ -288,7 +288,7 @@ This calm 20-second scene is built around the actual moon (2–4), blue planet
    appears briefly in warm starlight.
 
 The scene contains no random flashing. It received a physical hardware rating
-of 8/10 and remains manually triggered for now.
+of 8/10 and runs for its full 20 seconds in the automatic shuffled scheduler.
 
 ---
 
@@ -313,10 +313,11 @@ Triggered via HTTP API (`/awakening`) or automatically via the random queue sche
 Instead of fixed-interval timers, all auto-triggered special modes are managed by a centralized random queue scheduler running on Task 1. The pool of modes is:
 
 **Radial Pulse, Sweep, Jackpot Celebration, Awakening, Plasma, Lightning
-Storm, Multiball, Spotlight Cone, Spatial Meteor, Crimson Takeover** (10 total)
+Storm, Multiball, Spotlight Cone, Spatial Meteor, Crimson Takeover, Planetary
+Conjunction** (11 total)
 
 **How it works:**
-1. A shuffled queue of all 10 modes is built (Fisher-Yates shuffle). Each mode plays once before any repeats.
+1. A shuffled queue of all 11 modes is built (Fisher-Yates shuffle). Each mode plays once before any repeats.
 2. After each mode finishes, a random cooldown of **5–10 minutes** (`kSchedulerCooldownMinMs`–`kSchedulerCooldownMaxMs`) elapses before the next one fires.
 3. When the queue is exhausted, it reshuffles and starts over — ensuring variety.
 4. A **2-minute startup delay** (`kSchedulerStartupDelayMs`) prevents modes from firing immediately after boot.

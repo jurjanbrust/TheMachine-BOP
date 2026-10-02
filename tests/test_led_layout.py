@@ -183,6 +183,14 @@ class LedLayoutTests(unittest.TestCase):
         self.assertIn("RunPlanetaryConjunction()", main)
         self.assertIn('"/planetaryconjunction"', api)
 
+    def test_planetary_conjunction_is_automatically_scheduled(self):
+        source = DRAWING_SOURCE.read_text()
+        self.assertIn("PlanetaryConjunction,", source)
+        self.assertIn(
+            "case SpecialMode::PlanetaryConjunction:", source)
+        self.assertIn(
+            "RunAutoEffect(RunPlanetaryConjunctionEffect, 20000)", source)
+
     def test_network_startup_is_backgrounded(self):
         source = MAIN_SOURCE.read_text()
         setup = source[source.index("void setup()"):source.index("void loop()")]
