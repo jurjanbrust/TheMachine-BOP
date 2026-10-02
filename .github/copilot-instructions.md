@@ -173,15 +173,17 @@ Three LEDs (indices 55–57) simulate the shuttle's engine exhaust. Each mode ru
 ### Street Scene Modes (`StreetMode`)
 
 The 5 street LEDs (people + 4 cars) cycle through modes every 29 seconds.
+All street modes use continuous low-frequency interpolation. They intentionally
+contain no random sparkles, discrete runners, flashes or on/off blinking.
 
 | Mode | Description |
 |---|---|
-| **Pulse** | All 5 street LEDs pulse white in unison (24 BPM sine wave) |
-| **Runner** | A bright white lead pixel runs across people and car positions with a fading blue tail |
-| **Sparkle** | Random colorful sparkle bursts with per-LED fade decay on the street elements |
-| **CarHeadlights** | Cars alternate left/right pairs in warm yellow (255,200,60) like passing traffic, with the opposite pair dimmed. People LED breathes gently alongside |
+| **EveningGlow** | People transition slowly between cool dusk and warm ambient light; all four cars share a soft amber breath |
+| **PassingTraffic** | Left and right car pairs exchange warm headlight intensity over a 20-second sine cycle while people remain softly lit |
+| **CityBreath** | A very slow continuous dusk-to-amber wave moves across people and cars with small phase offsets |
+| **QuietNight** | Dim blue-violet people silhouette with gently breathing red and amber parked-car lights |
 
-**Rotation order:** Pulse → Runner → Sparkle → CarHeadlights → (repeat)
+**Rotation order:** EveningGlow → PassingTraffic → CityBreath → QuietNight → (repeat)
 
 ---
 

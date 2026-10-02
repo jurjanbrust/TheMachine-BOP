@@ -44,9 +44,6 @@ namespace
     constexpr uint32_t kShuttleModeDurationMs      = 37000;
     constexpr uint8_t  kStreetLedCount             = 5;
     constexpr uint32_t kStreetModeDurationMs       = 29000;
-    constexpr uint32_t kStreetRunnerIntervalMs     = 120;
-    constexpr uint8_t  kStreetSparkleDecay         = 210;
-    constexpr uint32_t kCarBlinkIntervalMs         = 800;
     constexpr uint8_t  kEyeBreathBpm              = 10;
     constexpr uint32_t kShuttleLaunchRampMs        = 15000;
     constexpr uint32_t kShuttleLaunchHoldMs        = 3000;
@@ -162,7 +159,6 @@ namespace
     CRGB g_planetSparkleLayer[kPlanetCount] = {};
     bool g_planetHighlightActive = false;
     uint32_t g_frontheadPulseStart = 0;
-    CRGB g_streetSparkleLayer[kStreetLedCount] = {};
     bool g_globalHeartActive = false;
     // Showcase owns both strips from boot; the machine task releases them after startup.
     bool g_showcaseActive = true;
@@ -538,74 +534,63 @@ namespace
         leds1[fronthead] = accent;
     }
 
-    void RenderStreetPulse()
+    void RenderStreetEveningGlow()
     {
-        const uint8_t wave = beatsin8(24, 60, 255);
-        for (uint8_t i = 0; i < kStreetLedCount; ++i)
-        {
-            CRGB color = CRGB::White;
-            color.nscale8_video(wave);
-            leds1[kStreetIndices[i]] = color;
-        }
+        const uint8_t breath = beatsin8(4, 0, 255);
+        leds1[people] = blend(
+            CRGB(25, 28, 48), CRGB(115, 88, 62), breath);
+
+        const CRGB cars = blend(
+            CRGB(28, 10, 2), CRGB(125, 72, 18), breath);
+        leds1[carright1] = cars;
+        leds1[carright2] = cars;
+        leds1[carleft1] = cars;
+        leds1[carleft2] = cars;
     }
 
-    void RenderStreetRunner()
+    void RenderStreetPassingTraffic()
     {
-        static CRGB trail[kStreetLedCount] = {};
-        static uint8_t position = 0;
-        static int8_t direction = 1;
-        static uint32_t nextStep = 0;
-
-        fadeToBlackBy(trail, kStreetLedCount, 70);
-        if (millis() >= nextStep)
-        {
-            trail[position] = position == 0
-                ? CRGB::White : CRGB(255, 175, 55);
-            if (position == 0)
-                direction = 1;
-            else if (position == kStreetLedCount - 1)
-                direction = -1;
-            position = static_cast<uint8_t>(position + direction);
-            nextStep = millis() + 130;
-        }
-
-        for (uint8_t i = 0; i < kStreetLedCount; ++i)
-            leds1[kStreetIndices[i]] = trail[i];
-    }
-
-    void RenderCarHeadlights()
-    {
-        // Smooth crossfade between left/right pairs like passing traffic
-        // beatsin8 at 38 BPM gives a gentle ~1.6s sway cycle
-        const uint8_t crossfade = beatsin8(38, 0, 255);  // 0 = left bright, 255 = right bright
-
-        const CRGB headlight = CRGB(255, 200, 60);
-        const CRGB dim       = CRGB(40, 30, 8);
-
-        // Left pair: bright when crossfade is low, dim when high
+        const uint8_t crossfade = beatsin8(3, 35, 220);
+        const CRGB headlight(185, 115, 34);
+        const CRGB dim(24, 9, 2);
         leds1[carleft1]  = blend(headlight, dim, crossfade);
         leds1[carleft2]  = blend(headlight, dim, crossfade);
-        // Right pair: bright when crossfade is high, dim when low
         leds1[carright1] = blend(dim, headlight, crossfade);
         leds1[carright2] = blend(dim, headlight, crossfade);
 
-        // People LED pulses gently alongside
-        const uint8_t peopleBrightness = beatsin8(12, 80, 200);
-        CRGB peopleColor = CRGB::White;
+        const uint8_t peopleBrightness = beatsin8(4, 70, 115);
+        CRGB peopleColor(120, 105, 88);
         peopleColor.nscale8_video(peopleBrightness);
         leds1[people] = peopleColor;
     }
 
-    void RenderStreetSparkle()
+    void RenderStreetCityBreath()
     {
         for (uint8_t i = 0; i < kStreetLedCount; ++i)
         {
-            g_streetSparkleLayer[i].fadeToBlackBy(kStreetSparkleDecay);
-            leds1[kStreetIndices[i]] += g_streetSparkleLayer[i];
+            const uint8_t wave = sin8(beat8(3) + i * 24);
+            const CRGB low = i == 0
+                ? CRGB(18, 22, 42) : CRGB(32, 9, 2);
+            const CRGB high = i == 0
+                ? CRGB(85, 75, 105) : CRGB(120, 65, 18);
+            leds1[kStreetIndices[i]] = blend(low, high, wave);
         }
+    }
 
-        const uint8_t sparkleIdx = random8(kStreetLedCount);
-        g_streetSparkleLayer[sparkleIdx] += CHSV(random8(), 200, 255);
+    void RenderStreetQuietNight()
+    {
+        const uint8_t peopleBreath = beatsin8(2, 35, 75);
+        leds1[people] = CRGB(
+            peopleBreath / 2, peopleBreath / 2, peopleBreath);
+
+        const uint8_t carBreath = beatsin8(2, 45, 90);
+        const CRGB tailLight(carBreath, carBreath / 8, 0);
+        const CRGB parkedLight(
+            carBreath, carBreath / 2, carBreath / 10);
+        leds1[carright1] = tailLight;
+        leds1[carright2] = tailLight;
+        leds1[carleft1] = parkedLight;
+        leds1[carleft2] = parkedLight;
     }
 
     enum class MachineMode : uint8_t
@@ -645,10 +630,10 @@ namespace
 
     enum class StreetMode : uint8_t
     {
-        Pulse = 0,
-        Runner,
-        Sparkle,
-        CarHeadlights,
+        EveningGlow = 0,
+        PassingTraffic,
+        CityBreath,
+        QuietNight,
         Count
     };
 
@@ -2098,17 +2083,17 @@ namespace
     {
         switch (mode)
         {
-            case StreetMode::Pulse:
-                RenderStreetPulse();
+            case StreetMode::EveningGlow:
+                RenderStreetEveningGlow();
                 break;
-            case StreetMode::Runner:
-                RenderStreetRunner();
+            case StreetMode::PassingTraffic:
+                RenderStreetPassingTraffic();
                 break;
-            case StreetMode::Sparkle:
-                RenderStreetSparkle();
+            case StreetMode::CityBreath:
+                RenderStreetCityBreath();
                 break;
-            case StreetMode::CarHeadlights:
-                RenderCarHeadlights();
+            case StreetMode::QuietNight:
+                RenderStreetQuietNight();
                 break;
             default:
                 break;
@@ -4314,7 +4299,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
     ShuttleMode currentMode = ShuttleMode::Flicker;
     uint32_t lastModeChange = millis();
     uint32_t lastSparkleUpdate = millis();
-    StreetMode currentStreetMode = StreetMode::Pulse;
+    StreetMode currentStreetMode = StreetMode::EveningGlow;
     uint32_t lastStreetModeChange = millis();
     CRGB shuttleTransitionFrom[kShuttleLedCount] = {};
     uint32_t shuttleTransitionStart = 0;

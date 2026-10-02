@@ -144,6 +144,23 @@ class LedLayoutTests(unittest.TestCase):
         for name, value in expected.items():
             self.assertRegex(source, rf"{name}\s*=\s*{value}")
 
+    def test_street_modes_do_not_blink_or_sparkle(self):
+        source = DRAWING_SOURCE.read_text()
+        street_renderers = source[
+            source.index("void RenderStreetEveningGlow"):
+            source.index("enum class MachineMode")
+        ]
+        self.assertNotIn("random8(", street_renderers)
+        self.assertNotIn("RenderStreetRunner", source)
+        self.assertNotIn("RenderStreetSparkle", source)
+        for mode in (
+            "EveningGlow",
+            "PassingTraffic",
+            "CityBreath",
+            "QuietNight",
+        ):
+            self.assertIn(f"StreetMode::{mode}", source)
+
     def test_network_startup_is_backgrounded(self):
         source = MAIN_SOURCE.read_text()
         setup = source[source.index("void setup()"):source.index("void loop()")]
