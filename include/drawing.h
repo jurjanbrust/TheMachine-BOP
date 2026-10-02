@@ -33,6 +33,7 @@ void RunMultiball();
 void RunSolarEclipse();
 void RunPrismShatter();
 void RunCrimsonTakeover();
+void RunPlanetaryConjunction();
 void RunOpeningShowcase();
 void RunCosmicOpening();
 void RunBrideAssemblyOpening();

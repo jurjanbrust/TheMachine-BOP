@@ -161,6 +161,28 @@ class LedLayoutTests(unittest.TestCase):
         ):
             self.assertIn(f"StreetMode::{mode}", source)
 
+    def test_planetary_conjunction_uses_all_planet_artwork(self):
+        source = DRAWING_SOURCE.read_text()
+        start = source.index("void RunPlanetaryConjunctionEffect")
+        end = source.index("// Prism Shatter", start)
+        scene = source[start:end]
+        for anchor in (
+            "moonTopLeft",
+            "bigBluePlanetLeftSide",
+            "bigBluePlanetRightSide",
+            "jupiterUpper",
+            "jupiterLower",
+        ):
+            self.assertIn(anchor, scene)
+        self.assertIn("RunPlanetaryConjunctionEffect(20000)", source)
+
+    def test_planetary_conjunction_has_usb_and_http_controls(self):
+        main = MAIN_SOURCE.read_text()
+        api = API_HEADER.read_text()
+        self.assertIn('command == "23"', main)
+        self.assertIn("RunPlanetaryConjunction()", main)
+        self.assertIn('"/planetaryconjunction"', api)
+
     def test_network_startup_is_backgrounded(self):
         source = MAIN_SOURCE.read_text()
         setup = source[source.index("void setup()"):source.index("void loop()")]

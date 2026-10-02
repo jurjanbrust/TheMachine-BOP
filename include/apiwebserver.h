@@ -81,6 +81,7 @@ class ApiWebServer
         _server.on("/eclipse",         HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->solarEclipse(pRequest); });
         _server.on("/prismshatter",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->prismShatter(pRequest); });
         _server.on("/crimsontakeover", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->crimsonTakeover(pRequest); });
+        _server.on("/planetaryconjunction", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->planetaryConjunction(pRequest); });
         _server.on("/opening-showcase", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->openingShowcase(pRequest); });
         _server.on("/opening-cosmic",   HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->cosmicOpening(pRequest); });
         _server.on("/opening-bride",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->brideOpening(pRequest); });
@@ -343,6 +344,12 @@ class ApiWebServer
     void crimsonTakeover(AsyncWebServerRequest * pRequest)
     {
         RunCrimsonTakeover();
+        sendOk(pRequest);
+    }
+
+    void planetaryConjunction(AsyncWebServerRequest * pRequest)
+    {
+        RunPlanetaryConjunction();
         sendOk(pRequest);
     }
 

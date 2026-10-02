@@ -78,6 +78,9 @@ GET http://192.168.10.99/prismshatter
 ### NEW: Crimson Takeover - full-display red heartbeat and golden release
 GET http://192.168.10.99/crimsontakeover
 
+### NEW: Planetary Conjunction - moon, blue planet and Jupiter align
+GET http://192.168.10.99/planetaryconjunction
+
 ### OPENING 1: Improved Fluorescent Showcase
 GET http://192.168.10.99/opening-showcase
 

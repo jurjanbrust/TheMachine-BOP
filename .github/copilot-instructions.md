@@ -273,6 +273,23 @@ Triggered via HTTP API (`/radialpulse`) or automatically via the random queue sc
 
 Triggered automatically via the random queue scheduler. A random sweep direction (from diagonal TL→BR, TR→BL, BR→TL, T→B, or B→T) washes warm white across the entire backglass. After a 1-second hold, the display cross-fades back to the live animation state (1.5s).
 
+### Planetary Conjunction
+
+Triggered manually through `/planetaryconjunction` or USB serial command `23`.
+This calm 20-second scene is built around the actual moon (2–4), blue planet
+(73–74), and Jupiter (83–84) artwork:
+
+1. Moonrise reveals crescent, gibbous, then full moon in gold and silver.
+2. The blue planet breathes cyan and emits a spatial gravity wave.
+3. Jupiter's upper and lower LEDs exchange slow red/orange storm colors.
+4. A violet orbital signal travels moon → blue planet → Jupiter using
+   `kLedCoords`, leaving a fading trail.
+5. All three bodies emit synchronized spatial waves while the Machine logo
+   appears briefly in warm starlight.
+
+The scene contains no random flashing. It received a physical hardware rating
+of 8/10 and remains manually triggered for now.
+
 ---
 
 ### Awakening Mode
@@ -336,6 +353,7 @@ high-rated scenes for automatic scheduling; keep lower-rated scenes manual.
 | Multiball | 9 | Pulse of Life | 9 |
 | Solar Eclipse | 7 | Moonlight Reveal | 9 |
 | Prism Shatter | 6 | | |
+| Planetary Conjunction | 8 | | |
 
 Crimson Takeover has not yet received a hardware score.
 
@@ -385,6 +403,7 @@ USB serial also accepts `jackpot`, `stop`, `resume`, and `status`.
 | `/eclipse` | GET | *(none)* | 10-second solar eclipse — a dark disc and warm corona travel across a dim star field |
 | `/prismshatter` | GET | *(none)* | 10-second prism shatter — rotating stained-glass facets and white fracture lines burst from the center |
 | `/crimsontakeover` | GET | *(none)* | 9-second full-display crimson double heartbeat, blackout and golden artwork release |
+| `/planetaryconjunction` | GET | *(none)* | 20-second moon, blue planet and Jupiter alignment with gravity waves and an orbital trail |
 | `/opening-showcase` | GET | *(none)* | Replay the improved fluorescent opening with independent warm/cool spotlights and a chromatic artwork reveal |
 | `/opening-cosmic` | GET | *(none)* | 12-second Cosmic Alignment opening — stars, orbiting energy, planets, title and bride align |
 | `/opening-bride` | GET | *(none)* | 12-second Bride Assembly opening — body, heart, eyes, title and forehead power up in stages |

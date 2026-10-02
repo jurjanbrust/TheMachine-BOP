@@ -186,6 +186,7 @@ namespace
     volatile bool g_solarEclipseRequested = false;
     volatile bool g_prismShatterRequested = false;
     volatile bool g_crimsonTakeoverRequested = false;
+    volatile bool g_planetaryConjunctionRequested = false;
     volatile bool g_openingShowcaseRequested = false;
     volatile bool g_cosmicOpeningRequested = false;
     volatile bool g_brideAssemblyOpeningRequested = false;
@@ -2383,6 +2384,11 @@ void RunCrimsonTakeover()
     QueueSceneRequest(g_crimsonTakeoverRequested);
 }
 
+void RunPlanetaryConjunction()
+{
+    QueueSceneRequest(g_planetaryConjunctionRequested);
+}
+
 void RunOpeningShowcase()
 {
     QueueSceneRequest(g_openingShowcaseRequested);
@@ -3585,6 +3591,160 @@ namespace
     }
 
     // -----------------------------------------------------------------------
+    // Planetary Conjunction — moon, blue planet and Jupiter align
+    // -----------------------------------------------------------------------
+    void RunPlanetaryConjunctionEffect(uint32_t durationMs = 20000)
+    {
+        constexpr float kPi = 3.14159265f;
+        constexpr float moonX = 3.0f;
+        constexpr float moonY = 0.0f;
+        constexpr float blueX = 12.5f;
+        constexpr float blueY = 3.0f;
+        constexpr float jupiterX = 17.0f;
+        constexpr float jupiterY = 8.5f;
+
+        CRGB orbitalTrail[NUM_LEDS1] = {};
+        const uint32_t start = millis();
+
+        auto addRing = [](float centerX,
+                          float centerY,
+                          float radius,
+                          float width,
+                          const CRGB & color) {
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+            {
+                const float dx = kLedCoords[i].x - centerX;
+                const float dy = kLedCoords[i].y - centerY;
+                const float edge = fabsf(sqrtf(dx * dx + dy * dy) - radius);
+                if (edge < width)
+                {
+                    CRGB ringColor = color;
+                    ringColor.nscale8_video(static_cast<uint8_t>(
+                        (1.0f - edge / width) * 150));
+                    leds1[i] += ringColor;
+                }
+            }
+        };
+
+        while (millis() - start < durationMs &&
+               !g_sceneCancellationRequested)
+        {
+            const uint32_t elapsed = millis() - start;
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB(0, 0, 3));
+            fadeToBlackBy(orbitalTrail, NUM_LEDS1, 16);
+
+            const uint8_t moonReveal =
+                OpeningStageAmount(elapsed, 0, 4000);
+            const uint8_t blueReveal =
+                OpeningStageAmount(elapsed, 4000, 4000);
+            const uint8_t jupiterReveal =
+                OpeningStageAmount(elapsed, 8000, 4000);
+
+            if (elapsed >= 4000 && elapsed < 8000)
+            {
+                const float waveProgress = (elapsed - 4000) / 4000.0f;
+                addRing(
+                    blueX, blueY, waveProgress * 15.0f, 1.35f,
+                    CRGB(10, 90, 175));
+            }
+
+            if (elapsed >= 12000 && elapsed < 16000)
+            {
+                float route = (elapsed - 12000) / 4000.0f;
+                route = route * route * (3.0f - 2.0f * route);
+
+                float headX;
+                float headY;
+                if (route < 0.58f)
+                {
+                    const float segment = route / 0.58f;
+                    headX = moonX + (blueX - moonX) * segment;
+                    headY = moonY + (blueY - moonY) * segment;
+                }
+                else
+                {
+                    const float segment = (route - 0.58f) / 0.42f;
+                    headX = blueX + (jupiterX - blueX) * segment;
+                    headY = blueY + (jupiterY - blueY) * segment;
+                }
+
+                for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                {
+                    const float dx = kLedCoords[i].x - headX;
+                    const float dy = kLedCoords[i].y - headY;
+                    const float distance = sqrtf(dx * dx + dy * dy);
+                    if (distance < 2.2f)
+                    {
+                        orbitalTrail[i] += CRGB(
+                            static_cast<uint8_t>((1.0f - distance / 2.2f) * 105),
+                            20,
+                            static_cast<uint8_t>((1.0f - distance / 2.2f) * 180));
+                    }
+                }
+            }
+
+            for (uint8_t i = 0; i < NUM_LEDS1; ++i)
+                leds1[i] += orbitalTrail[i];
+
+            uint8_t conjunctionBoost = 0;
+            if (elapsed >= 16000)
+            {
+                const float progress = min(
+                    1.0f, (elapsed - 16000) / 4000.0f);
+                const float envelope = sinf(progress * kPi);
+                conjunctionBoost =
+                    static_cast<uint8_t>(envelope * 105.0f);
+                const float radius = progress * 16.0f;
+                addRing(moonX, moonY, radius, 1.2f, CRGB(155, 170, 210));
+                addRing(blueX, blueY, radius, 1.2f, CRGB(0, 105, 220));
+                addRing(jupiterX, jupiterY, radius, 1.2f, CRGB(220, 65, 8));
+
+                CRGB title(246, 200, 160);
+                title.nscale8_video(
+                    static_cast<uint8_t>(envelope * 190.0f));
+                FillMachineRange(title);
+            }
+
+            for (uint8_t i = 0; i < 3; ++i)
+            {
+                const uint8_t amount = qsub8(moonReveal, i * 52);
+                CRGB moonColor = blend(
+                    CRGB(255, 210, 125), CRGB(205, 225, 255),
+                    moonReveal);
+                moonColor.nscale8_video(
+                    qadd8(amount, conjunctionBoost));
+                leds1[moonTopLeft + i] += moonColor;
+            }
+
+            const uint8_t blueBreath = scale8(
+                blueReveal, beatsin8(4, 125, 220));
+            CRGB blueColor(0, 120, 255);
+            blueColor.nscale8_video(
+                qadd8(blueBreath, conjunctionBoost));
+            leds1[bigBluePlanetLeftSide] += blueColor;
+            leds1[bigBluePlanetRightSide] += blueColor;
+
+            const uint8_t storm = sin8(
+                static_cast<uint8_t>((elapsed >= 8000
+                    ? elapsed - 8000 : 0) / 32));
+            CRGB jupiterUpperColor = blend(
+                CRGB(145, 20, 0), CRGB(255, 155, 35), storm);
+            CRGB jupiterLowerColor = blend(
+                CRGB(255, 155, 35), CRGB(145, 20, 0), storm);
+            const uint8_t jupiterStrength =
+                qadd8(jupiterReveal, conjunctionBoost);
+            jupiterUpperColor.nscale8_video(jupiterStrength);
+            jupiterLowerColor.nscale8_video(jupiterStrength);
+            leds1[jupiterUpper] += jupiterUpperColor;
+            leds1[jupiterLower] += jupiterLowerColor;
+
+            PublishLedFrame();
+            delay(30);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Prism Shatter — radial stained-glass facets and white fracture lines
     // -----------------------------------------------------------------------
     void RunPrismShatterEffect(uint32_t durationMs = 10000)
@@ -4553,6 +4713,16 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
             Serial.printf("[SCENE] Crimson Takeover started\n");
             RunCrimsonTakeoverEffect(9000);
             Serial.printf("[SCENE] Crimson Takeover finished\n");
+            continue;
+        }
+
+        if (g_planetaryConjunctionRequested)
+        {
+            g_planetaryConjunctionRequested = false;
+            BeginExclusiveScene(CRGB(0, 0, 5));
+            Serial.printf("[SCENE] 23 Planetary Conjunction started\n");
+            RunPlanetaryConjunctionEffect(20000);
+            Serial.printf("[SCENE] 23 Planetary Conjunction finished\n");
             continue;
         }
 

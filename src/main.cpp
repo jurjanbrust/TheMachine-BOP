@@ -106,6 +106,8 @@ void ProcessSerialSceneCommand()
             RunPrismShatter();
         else if (command == "22" || command.equalsIgnoreCase("crimsontakeover"))
             RunCrimsonTakeover();
+        else if (command == "23" || command.equalsIgnoreCase("planetaryconjunction"))
+            RunPlanetaryConjunction();
         else if (command == "11" || command.equalsIgnoreCase("opening-showcase"))
             RunOpeningShowcase();
         else if (command == "12" || command.equalsIgnoreCase("opening-cosmic"))
