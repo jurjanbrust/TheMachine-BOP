@@ -1,5 +1,6 @@
 #include "globals.h"
 #include "drawing.h"
+#include "ledrenderer.h"
 #include <ArduinoOTA.h>             // Over-the-air helper object so we can be flashed via WiFi
 #include <cstring>
 #include <esp_system.h>
@@ -189,10 +190,19 @@ namespace
     volatile bool g_stellarTransmissionOpeningRequested = false;
     volatile bool g_pulseOfLifeOpeningRequested = false;
     volatile bool g_moonlightRevealOpeningRequested = false;
+    volatile bool g_singleLedTestRequested = false;
+    volatile uint8_t g_singleLedTestIndex = 0;
+    volatile bool g_sceneCancellationRequested = false;
     bool g_showcaseReviewActive = false;
     bool g_globalColorTakeoverActive = false;
     bool g_startupOpeningActive = false;
     uint8_t g_startupOpeningSelection = 1;
+
+    void QueueSceneRequest(volatile bool & requestFlag)
+    {
+        g_sceneCancellationRequested = true;
+        requestFlag = true;
+    }
 
     const CRGB kSpotlightColor = CRGB::White;
 
@@ -406,7 +416,7 @@ namespace
                     ++idx;
                 }
                 tickFade();
-                FastLED.show();
+                PublishLedFrame();
                 delay(stepDelay);
             }
         }
@@ -419,7 +429,7 @@ namespace
                 for (uint8_t s = 0; s < ledsPerStep && idx < NUM_LEDS1; ++s, ++idx)
                     age[idx] = 1;
                 tickFade();
-                FastLED.show();
+                PublishLedFrame();
                 delay(stepDelay);
             }
         }
@@ -427,7 +437,7 @@ namespace
         // Final pass: ensure all LEDs reach full brightness
         for (uint8_t i = 0; i < NUM_LEDS1; ++i)
             leds1[order[i]] = color;
-        FastLED.show();
+        PublishLedFrame();
     }
 
     // Startup sweep: bottom-to-top warm white reveal for a pleasant boot look
@@ -435,7 +445,7 @@ namespace
     {
         fill_solid(leds0, NUM_LEDS0, CRGB::Black);
         fill_solid(leds1, NUM_LEDS1, CRGB::Black);
-        FastLED.show();
+        PublishLedFrame();
 
         // Strip 1: sweep bottom-to-top with warm white
         SweepFill(CRGB(246, 200, 160), SweepDirection::DiagBRtoTL, 2000, 3);
@@ -445,11 +455,11 @@ namespace
         {
             for (uint8_t i = 0; i < NUM_LEDS1; ++i)
                 leds1[i].nscale8_video(fade > 5 ? 245 : 0);
-            FastLED.show();
+            PublishLedFrame();
             delay(15);
         }
         fill_solid(leds1, NUM_LEDS1, CRGB::Black);
-        FastLED.show();
+        PublishLedFrame();
     }
 
     enum class BrideMode : uint8_t
@@ -663,7 +673,7 @@ namespace
             leds1[theMachineFirstLed + i] = hsv;
             hsv.hue += 10;
         }
-        FastLED.show();
+        PublishLedFrame();
     }
 
     void RenderMachinePulse()
@@ -671,7 +681,7 @@ namespace
         CRGB color = CRGB::DeepPink;
         color.nscale8_video(GetHeartbeatBrightness(30));
         FillMachineRange(color);
-        FastLED.show();
+        PublishLedFrame();
     }
 
     void RenderMachineSparkle()
@@ -684,7 +694,7 @@ namespace
         const uint8_t idx = random8(kMachineLedCount);
         leds1[theMachineFirstLed + idx] = idx % 2
             ? CRGB(210, 230, 255) : CRGB(255, 185, 95);
-        FastLED.show();
+        PublishLedFrame();
         delay(30);
     }
 
@@ -700,7 +710,7 @@ namespace
             leds1[ledIndex - 1] += CRGB(90, 8, 0);
         if (position + 1 < kMachineLedCount)
             leds1[ledIndex + 1] += CRGB(90, 8, 0);
-        FastLED.show();
+        PublishLedFrame();
 
         if (position == 0)
             direction = 1;
@@ -736,7 +746,7 @@ namespace
             cometDir = -1;
         cometPos = static_cast<uint8_t>(cometPos + cometDir);
 
-        FastLED.show();
+        PublishLedFrame();
         delay(50);
     }
 
@@ -896,21 +906,21 @@ namespace
         const uint32_t start = millis();
 
         // Phase 1: Rapid rainbow flash (2 seconds)
-        while (millis() - start < 2000)
+        while (millis() - start < 2000 && !g_sceneCancellationRequested)
         {
             const uint8_t hue = beat8(120);
             for (uint8_t i = 0; i < kJackpotLedCount; ++i)
             {
                 leds0[i] = CHSV(hue + i * 5, 255, 255);
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(20);
         }
 
         // Phase 2: Golden cascade fill with sparkle (3 seconds)
         const uint32_t phase2Start = millis();
         uint8_t filledSegments = 0;
-        while (millis() - phase2Start < 3000)
+        while (millis() - phase2Start < 3000 && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - phase2Start;
             const uint8_t targetSegments = static_cast<uint8_t>(
@@ -932,7 +942,7 @@ namespace
                 leds0[sparkIdx] = CRGB::White;
             }
 
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
 
             // Fade sparkles back to gold
@@ -994,7 +1004,7 @@ namespace
             // Black out everything at the start
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
             fill_solid(leds1, NUM_LEDS1, CRGB::Black);
-            FastLED.show();
+            PublishLedFrame();
         }
 
         auto advanceStage = [&](uint8_t nextStage) {
@@ -1043,7 +1053,7 @@ namespace
                     CRGB(85, 115, 255), CRGB(205, 235, 255), progress);
                 leds1[spotlights1] = warmOn ? warmColor : CRGB::Black;
                 leds1[spotlights2] = coolOn ? coolColor : CRGB::Black;
-                FastLED.show();
+                PublishLedFrame();
                 delay(random8(30, 120));
 
                 if (elapsed >= kShowcaseFlickerDurationMs)
@@ -1077,7 +1087,7 @@ namespace
                     leds1[kPlanetIndices[i]] = color;
                 }
 
-                FastLED.show();
+                PublishLedFrame();
 
                 if (elapsed >= kShowcaseRampDurationMs + kShowcaseHoldDurationMs)
                 {
@@ -1089,7 +1099,7 @@ namespace
             {
                 constexpr uint32_t revealDurationMs = 2800;
                 const uint32_t revealStart = millis();
-                while (millis() - revealStart < revealDurationMs)
+                while (millis() - revealStart < revealDurationMs && !g_sceneCancellationRequested)
                 {
                     const uint8_t progress = static_cast<uint8_t>(
                         ((millis() - revealStart) * 255UL) / revealDurationMs);
@@ -1130,7 +1140,7 @@ namespace
                         leds1[kShuttleFirstLed + i] = flame;
                     }
 
-                    FastLED.show();
+                    PublishLedFrame();
                     delay(20);
                 }
                 delay(800);
@@ -1158,7 +1168,7 @@ namespace
                 {
                     leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
                 }
-                FastLED.show();
+                PublishLedFrame();
                 break;
             }
             default:
@@ -1172,7 +1182,7 @@ namespace
     {
         static const CRGB idleColor(246, 200, 160);
         FillMachineRange(idleColor);
-        FastLED.show();
+        PublishLedFrame();
     }
 
     void RunMachineMode(MachineMode mode)
@@ -1252,7 +1262,7 @@ namespace
 
         constexpr uint32_t kFadeInDurationMs = 2000;
         const uint32_t fadeStart = millis();
-        while (millis() - fadeStart < kFadeInDurationMs)
+        while (millis() - fadeStart < kFadeInDurationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - fadeStart;
             const uint8_t blendAmount = static_cast<uint8_t>(
@@ -1267,13 +1277,13 @@ namespace
             for (uint16_t i = 0; i < NUM_LEDS1; ++i)
                 leds1[i] = blend(snapshot1[i], targetViolet, blendAmount);
 
-            FastLED.show();
+            PublishLedFrame();
             delay(20);
         }
 
         // --- Main heartbeat loop ---
         const uint32_t start = millis();
-        while (millis() - start < kGlobalHeartDurationMs)
+        while (millis() - start < kGlobalHeartDurationMs && !g_sceneCancellationRequested)
         {
             const uint8_t brightness = GetHeartbeatBrightness();
             CRGB strip0 = CRGB::Red;
@@ -1283,7 +1293,7 @@ namespace
 
             fill_solid(leds0, NUM_LEDS0, strip0);
             fill_solid(leds1, NUM_LEDS1, strip1);
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
         g_globalHeartActive = false;
@@ -1308,12 +1318,12 @@ namespace
         // Black out everything
         fill_solid(leds0, NUM_LEDS0, CRGB::Black);
         fill_solid(leds1, NUM_LEDS1, CRGB::Black);
-        FastLED.show();
+        PublishLedFrame();
         delay(500); // Brief dramatic pause in total darkness
 
         const uint32_t startMs = millis();
 
-        while (millis() - startMs < kAwakeningDurationMs)
+        while (millis() - startMs < kAwakeningDurationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - startMs;
 
@@ -1506,7 +1516,7 @@ namespace
                 }
             }
 
-            FastLED.show();
+            PublishLedFrame();
             delay(25);
         }
 
@@ -1566,7 +1576,7 @@ namespace
         {
             leds0[i] = shouldDim ? DimJackpotColor(g_jackpotFrame[i]) : g_jackpotFrame[i];
         }
-        FastLED.show();
+        PublishLedFrame();
     }
 
     void ApplyJackpotDefaultColors()
@@ -1873,7 +1883,7 @@ namespace
             fadeToBlackBy(g_jackpotFrame, kJackpotLedCount, 42);
             for (uint8_t i = 0; i < kJackpotLedCount; ++i)
                 leds0[i] = g_jackpotFrame[i];
-            FastLED.show();
+            PublishLedFrame();
             delay(18);
         }
     }
@@ -1915,7 +1925,7 @@ namespace
             const uint8_t heat = random8(160, 255);
             segment[i] = CHSV(10 + random8(8), 255, heat);
         }
-        FastLED.show();
+        PublishLedFrame();
         delay(35);
     }
 
@@ -1929,7 +1939,7 @@ namespace
             segment[i] = CHSV(5 + wave / 6, 220, 150 + (wave >> 2));
         }
         offset += 6;
-        FastLED.show();
+        PublishLedFrame();
         delay(45);
     }
 
@@ -1944,7 +1954,7 @@ namespace
             heat.nscale8_video(pulse);
             segment[i] = blend(CRGB::White, heat, blendAmount);
         }
-        FastLED.show();
+        PublishLedFrame();
         delay(30);
     }
 
@@ -2001,7 +2011,7 @@ namespace
             fill_solid(segment, kShuttleLedCount, CRGB::Black);
         }
 
-        FastLED.show();
+        PublishLedFrame();
         delay(30);
     }
 
@@ -2084,7 +2094,7 @@ void TheMachineLogo(CRGB color = CRGB(246,200,160))
         for (int i = start; i < start+12; i++) {
 			leds1[i] = color;
         }
-        FastLED.show();
+        PublishLedFrame();
 }
 
 void TheBride(CRGB color = CRGB(246,200,160))
@@ -2094,13 +2104,13 @@ void TheBride(CRGB color = CRGB(246,200,160))
         for (uint i = 0; i < 33 ; i++) {
 			leds1[leds[i]] = color;
         }
-        FastLED.show();
+        PublishLedFrame();
 }
 
 void SingleLed(int index, CRGB color = CRGB(246,200,160))
 {
     leds1[index] = color;
-    FastLED.show();
+    PublishLedFrame();
 }
 
 void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int everyNth = 10)
@@ -2109,7 +2119,7 @@ void ColorFillEffect(CRGB color = CRGB(246,200,160), int nrOfLeds = 10, int ever
 			leds1[i] = color;
         }
 
-        FastLED.show();
+        PublishLedFrame();
 }
 
 void FlickerSpotlight(uint8_t index, const CRGB & color)
@@ -2121,7 +2131,7 @@ void FlickerSpotlight(uint8_t index, const CRGB & color)
     for (uint8_t i = 0; i < kFlickerBursts; ++i)
     {
         leds1[index] = (i % 2 == 0) ? CRGB::Black : color;
-        FastLED.show();
+        PublishLedFrame();
         delay(random8(25, 90));
     }
 
@@ -2132,12 +2142,12 @@ void FlickerSpotlight(uint8_t index, const CRGB & color)
         const uint8_t scale = lerp8by8(30, 255, static_cast<uint8_t>((step * 255) / (kRampSteps - 1)));
         ramp.nscale8_video(scale);
         leds1[index] = ramp;
-        FastLED.show();
+        PublishLedFrame();
         delay(65);
     }
 
     leds1[index] = color;
-    FastLED.show();
+    PublishLedFrame();
 }
 
 void FlickerSpotlights(uint8_t indexA, uint8_t indexB, const CRGB & color)
@@ -2151,7 +2161,7 @@ void FlickerSpotlights(uint8_t indexA, uint8_t indexB, const CRGB & color)
         const CRGB level = (i % 2 == 0) ? CRGB::Black : color;
         leds1[indexA] = level;
         leds1[indexB] = level;
-        FastLED.show();
+        PublishLedFrame();
         delay(random8(25, 90));
     }
 
@@ -2163,13 +2173,13 @@ void FlickerSpotlights(uint8_t indexA, uint8_t indexB, const CRGB & color)
         ramp.nscale8_video(scale);
         leds1[indexA] = ramp;
         leds1[indexB] = ramp;
-        FastLED.show();
+        PublishLedFrame();
         delay(65);
     }
 
     leds1[indexA] = color;
     leds1[indexB] = color;
-    FastLED.show();
+    PublishLedFrame();
 }
 
 void Heartbeat(int channel)
@@ -2188,7 +2198,7 @@ void Heartbeat(int channel)
     leds0[NUM_LEDS0 -5] = CRGB::BlueViolet;
     leds0[NUM_LEDS0 -5].fadeLightBy(brightness);
   }
-  FastLED.show();
+  PublishLedFrame();
   //FastLED.setBrightness( lerp8by8( 0, 255, brightness ) ); // interpolate to max MAX_BRIGHTNESS
 }
 
@@ -2199,7 +2209,7 @@ void Eyes(CRGB color = CRGB(246,200,160))
     leds0[NUM_LEDS0 -4] = color;   // oog 2e rechts
     leds0[NUM_LEDS0 -5] = color;   // oog rechts
 
-    FastLED.show();
+    PublishLedFrame();
 }
 
 void BreathingEyes()
@@ -2214,34 +2224,33 @@ void BreathingEyes()
     leds0[NUM_LEDS0 -3] = color;
     leds0[NUM_LEDS0 -4] = color;
     leds0[NUM_LEDS0 -5] = color;
-    FastLED.show();
+    PublishLedFrame();
 }
 
 void TriggerJackpotCelebration()
 {
-    g_jackpotCelebrationRequested = true;
+    QueueSceneRequest(g_jackpotCelebrationRequested);
 }
 
 void TriggerAwakening()
 {
-    g_awakeningRequested = true;
+    QueueSceneRequest(g_awakeningRequested);
 }
 
 void SetAllStopped(bool stopped)
 {
     if (stopped)
     {
+        g_sceneCancellationRequested = true;
         g_allStopped = true;
-        fill_solid(leds0, NUM_LEDS0, CRGB::Black);
-        fill_solid(leds1, NUM_LEDS1, CRGB::Black);
-        FastLED.show();
+        SetLedOutputEnabled(false);
         debugI("All animations stopped, LEDs off");
     }
     else
     {
-        if (g_allStopped)
-            FadeBothStripsTo(CRGB::Black, CRGB::Black, 350);
+        g_sceneCancellationRequested = false;
         g_allStopped = false;
+        SetLedOutputEnabled(true);
         debugI("Animations resumed");
     }
 }
@@ -2249,7 +2258,7 @@ void SetAllStopped(bool stopped)
 void RunSweep(uint8_t direction)
 {
     g_sweepDirection = direction;
-    g_sweepRequested = true;
+    QueueSceneRequest(g_sweepRequested);
 }
 
 // -----------------------------------------------------------------------
@@ -2257,132 +2266,159 @@ void RunSweep(uint8_t direction)
 // -----------------------------------------------------------------------
 void RunRadialPulse()
 {
-    g_radialPulseRequested = true;
+    QueueSceneRequest(g_radialPulseRequested);
 }
 
 void RunPlasma()
 {
-    g_plasmaRequested = true;
+    QueueSceneRequest(g_plasmaRequested);
 }
 
 void RunRain()
 {
-    g_rainRequested = true;
+    QueueSceneRequest(g_rainRequested);
 }
 
 void RunBreathingGrid()
 {
-    g_breathingGridRequested = true;
+    QueueSceneRequest(g_breathingGridRequested);
 }
 
 void RunSpotlightCone()
 {
-    g_spotlightConeRequested = true;
+    QueueSceneRequest(g_spotlightConeRequested);
 }
 
 void RunSpatialMeteor()
 {
-    g_spatialMeteorRequested = true;
+    QueueSceneRequest(g_spatialMeteorRequested);
 }
 
 void RunQuantumVortex()
 {
-    g_quantumVortexRequested = true;
+    QueueSceneRequest(g_quantumVortexRequested);
 }
 
 void RunLightningStorm()
 {
-    g_lightningStormRequested = true;
+    QueueSceneRequest(g_lightningStormRequested);
 }
 
 void RunNeonRings()
 {
-    g_neonRingsRequested = true;
+    QueueSceneRequest(g_neonRingsRequested);
 }
 
 void RunArtworkStory()
 {
-    g_artworkStoryRequested = true;
+    QueueSceneRequest(g_artworkStoryRequested);
 }
 
 void RunFireworks()
 {
-    g_fireworksRequested = true;
+    QueueSceneRequest(g_fireworksRequested);
 }
 
 void RunLaserMatrix()
 {
-    g_laserMatrixRequested = true;
+    QueueSceneRequest(g_laserMatrixRequested);
 }
 
 void RunGhostBride()
 {
-    g_ghostBrideRequested = true;
+    QueueSceneRequest(g_ghostBrideRequested);
 }
 
 void RunMultiball()
 {
-    g_multiballRequested = true;
+    QueueSceneRequest(g_multiballRequested);
 }
 
 void RunSolarEclipse()
 {
-    g_solarEclipseRequested = true;
+    QueueSceneRequest(g_solarEclipseRequested);
 }
 
 void RunPrismShatter()
 {
-    g_prismShatterRequested = true;
+    QueueSceneRequest(g_prismShatterRequested);
 }
 
 void RunCrimsonTakeover()
 {
-    g_crimsonTakeoverRequested = true;
+    QueueSceneRequest(g_crimsonTakeoverRequested);
 }
 
 void RunOpeningShowcase()
 {
-    g_openingShowcaseRequested = true;
+    QueueSceneRequest(g_openingShowcaseRequested);
 }
 
 void RunCosmicOpening()
 {
-    g_cosmicOpeningRequested = true;
+    QueueSceneRequest(g_cosmicOpeningRequested);
 }
 
 void RunBrideAssemblyOpening()
 {
-    g_brideAssemblyOpeningRequested = true;
+    QueueSceneRequest(g_brideAssemblyOpeningRequested);
 }
 
 void RunLaunchControlOpening()
 {
-    g_launchControlOpeningRequested = true;
+    QueueSceneRequest(g_launchControlOpeningRequested);
 }
 
 void RunCityAwakeningOpening()
 {
-    g_cityAwakeningOpeningRequested = true;
+    QueueSceneRequest(g_cityAwakeningOpeningRequested);
 }
 
 void RunDiagnosticsOpening()
 {
-    g_diagnosticsOpeningRequested = true;
+    QueueSceneRequest(g_diagnosticsOpeningRequested);
 }
 
 void RunStellarTransmissionOpening()
 {
-    g_stellarTransmissionOpeningRequested = true;
+    QueueSceneRequest(g_stellarTransmissionOpeningRequested);
 }
 
 void RunPulseOfLifeOpening()
 {
-    g_pulseOfLifeOpeningRequested = true;
+    QueueSceneRequest(g_pulseOfLifeOpeningRequested);
 }
 
 void RunMoonlightRevealOpening()
 {
-    g_moonlightRevealOpeningRequested = true;
+    QueueSceneRequest(g_moonlightRevealOpeningRequested);
+}
+
+void RunSingleLedTest(uint8_t index)
+{
+    g_singleLedTestIndex = index;
+    QueueSceneRequest(g_singleLedTestRequested);
+}
+
+bool AreAnimationsStopped()
+{
+    return g_allStopped;
+}
+
+bool IsSceneCancellationPending()
+{
+    return g_sceneCancellationRequested;
+}
+
+uint8_t GetStartupOpeningSelection()
+{
+    return g_startupOpeningSelection;
+}
+
+uint32_t GetSchedulerRemainingMs()
+{
+    const uint32_t now = millis();
+    return now >= g_nextAutoModeTime ? 0 : g_nextAutoModeTime - now;
 }
 
 uint8_t PrepareRandomStartupOpening()
@@ -2439,7 +2475,7 @@ namespace
         const uint8_t numRipples = 3;
         const uint32_t startTime = millis();
 
-        while (millis() - startTime < totalMs)
+        while (millis() - startTime < totalMs && !g_sceneCancellationRequested)
         {
             float progress = (float)(millis() - startTime) / totalMs;
             fill_solid(leds1, NUM_LEDS1, CRGB::Black);
@@ -2464,7 +2500,7 @@ namespace
                     }
                 }
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(16);
         }
     }
@@ -2475,12 +2511,12 @@ namespace
     void CrossFadeFromSnapshot(CRGB * snapshot, uint32_t durationMs)
     {
         const uint32_t fadeStart = millis();
-        while (millis() - fadeStart < durationMs)
+        while (millis() - fadeStart < durationMs && !g_sceneCancellationRequested)
         {
             uint8_t blendAmt = (uint8_t)(((millis() - fadeStart) * 255) / durationMs);
             for (uint8_t i = 0; i < NUM_LEDS1; ++i)
                 leds1[i] = blend(snapshot[i], leds1[i], blendAmt);
-            FastLED.show();
+            PublishLedFrame();
             delay(16);
         }
     }
@@ -2495,7 +2531,7 @@ namespace
         ::memcpy(snapshot1, leds1, sizeof(snapshot1));
 
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint8_t amount = static_cast<uint8_t>(
                 ((millis() - start) * 255UL) / durationMs);
@@ -2503,17 +2539,25 @@ namespace
                 leds0[i] = blend(snapshot0[i], strip0Target, amount);
             for (uint8_t i = 0; i < NUM_LEDS1; ++i)
                 leds1[i] = blend(snapshot1[i], strip1Target, amount);
-            FastLED.show();
+            PublishLedFrame();
             delay(16);
         }
         fill_solid(leds0, NUM_LEDS0, strip0Target);
         fill_solid(leds1, NUM_LEDS1, strip1Target);
-        FastLED.show();
+        PublishLedFrame();
     }
 
     void BeginExclusiveScene(const CRGB & transitionColor = CRGB::Black)
     {
+        g_sceneCancellationRequested = false;
         g_allStopped = true;
+        if (!IsLedOutputEnabled())
+        {
+            fill_solid(leds0, NUM_LEDS0, CRGB::Black);
+            fill_solid(leds1, NUM_LEDS1, CRGB::Black);
+            PublishLedFrame();
+            SetLedOutputEnabled(true);
+        }
         delay(20);
         FadeBothStripsTo(transitionColor, transitionColor, 500);
     }
@@ -2529,12 +2573,12 @@ namespace
 
         // Cross-fade from current to black (500ms)
         const uint32_t dimStart = millis();
-        while (millis() - dimStart < 500)
+        while (millis() - dimStart < 500 && !g_sceneCancellationRequested)
         {
             uint8_t blendAmt = (uint8_t)(((millis() - dimStart) * 255) / 500);
             for (uint8_t i = 0; i < NUM_LEDS1; ++i)
                 leds1[i] = blend(snapshotBefore[i], CRGB::Black, blendAmt);
-            FastLED.show();
+            PublishLedFrame();
             delay(16);
         }
 
@@ -2587,7 +2631,7 @@ namespace
     void RunPlasmaEffect(uint32_t durationMs = 10000)
     {
         const uint32_t startTime = millis();
-        while (millis() - startTime < durationMs)
+        while (millis() - startTime < durationMs && !g_sceneCancellationRequested)
         {
             float t = (millis() - startTime) / 1000.0f; // seconds
             for (uint8_t i = 0; i < NUM_LEDS1; ++i)
@@ -2606,7 +2650,7 @@ namespace
                 uint8_t bri = (uint8_t)(180 + 75 * sinf(v * 3.14159f));
                 leds1[i] = CHSV(hue, 220, bri);
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(20);
         }
     }
@@ -2666,7 +2710,7 @@ namespace
         memset(trail, 0, sizeof(trail));
 
         const uint32_t startTime = millis();
-        while (millis() - startTime < durationMs)
+        while (millis() - startTime < durationMs && !g_sceneCancellationRequested)
         {
             // Spawn new drops randomly
             for (uint8_t d = 0; d < kMaxDrops; ++d)
@@ -2716,7 +2760,7 @@ namespace
                 }
             }
 
-            FastLED.show();
+            PublishLedFrame();
             delay(80); // drop speed
         }
     }
@@ -2728,7 +2772,7 @@ namespace
     {
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             float t = (millis() - start) / 1000.0f;
 
@@ -2749,7 +2793,7 @@ namespace
                 uint8_t hue = (uint8_t)(t * 8.0f + x * 6.0f + y * 4.0f);
                 leds1[i] = CHSV(hue, 180, bri);
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -2785,7 +2829,7 @@ namespace
             if (dist2[i] > maxDist) maxDist = dist2[i];
         }
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             float t = (millis() - start) / 1000.0f;
 
@@ -2822,7 +2866,7 @@ namespace
                     leds1[i] = CRGB::Black;
                 }
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -2879,7 +2923,7 @@ namespace
             m.active = true;
         };
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             // Decay trail
             for (uint8_t i = 0; i < NUM_LEDS1; i++)
@@ -2948,7 +2992,7 @@ namespace
                     leds1[i] = CRGB::Black;
                 }
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(60);
         }
     }
@@ -2962,7 +3006,7 @@ namespace
         constexpr float kCenterY = 7.0f;
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const float t = (millis() - start) / 1000.0f;
 
@@ -2991,7 +3035,7 @@ namespace
                     leds1[i] += CRGB(core, core, core);
                 }
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(25);
         }
     }
@@ -3007,7 +3051,7 @@ namespace
         uint8_t flashFrames = 0;
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             for (uint8_t i = 0; i < NUM_LEDS1; ++i)
@@ -3052,7 +3096,7 @@ namespace
             if (flashFrames > 0)
                 --flashFrames;
 
-            FastLED.show();
+            PublishLedFrame();
             delay(45);
         }
     }
@@ -3067,7 +3111,7 @@ namespace
         constexpr uint8_t ringHue[] = { 224, 96, 160 };
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             fill_solid(leds1, NUM_LEDS1, CRGB::Black);
             const uint32_t tick = (millis() - start) / 68;
@@ -3103,7 +3147,7 @@ namespace
             const uint8_t pulse = beatsin8(30, 40, 180);
             leds1[spotlights1] += CRGB(pulse, pulse / 3, pulse);
             leds1[spotlights2] += CRGB(pulse, pulse / 3, pulse);
-            FastLED.show();
+            PublishLedFrame();
             delay(25);
         }
     }
@@ -3126,7 +3170,7 @@ namespace
             target = color;
         };
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
@@ -3175,7 +3219,7 @@ namespace
                            kJackpotLedsPerSegment, color);
             }
 
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -3205,7 +3249,7 @@ namespace
             };
         }
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
@@ -3290,7 +3334,7 @@ namespace
                         leds1[i] += CRGB(255, 155, 35);
                 }
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -3301,7 +3345,7 @@ namespace
     void RunLaserMatrixEffect(uint32_t durationMs = 10000)
     {
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const float t = (millis() - start) / 1000.0f;
             const float beamX1 = 9.0f + 9.0f * sinf(t * 1.65f);
@@ -3329,7 +3373,7 @@ namespace
                     color += CRGB::White;
                 leds1[i] = color;
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(24);
         }
     }
@@ -3342,7 +3386,7 @@ namespace
         uint8_t ectoplasm[kBrideLedCount] = {};
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const float t = (millis() - start) / 1000.0f;
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
@@ -3373,7 +3417,7 @@ namespace
             const uint8_t foreheadPulse = beatsin8(22, 50, 220);
             leds1[fronthead] += CRGB(
                 foreheadPulse / 3, foreheadPulse, foreheadPulse);
-            FastLED.show();
+            PublishLedFrame();
             delay(35);
         }
     }
@@ -3407,7 +3451,7 @@ namespace
         }
 
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             fadeToBlackBy(trails, NUM_LEDS1, 38);
 
@@ -3443,7 +3487,7 @@ namespace
             }
 
             ::memcpy(leds1, trails, sizeof(trails));
-            FastLED.show();
+            PublishLedFrame();
             delay(25);
         }
     }
@@ -3454,7 +3498,7 @@ namespace
     void RunSolarEclipseEffect(uint32_t durationMs = 10000)
     {
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const float progress = (millis() - start) / static_cast<float>(durationMs);
             const float eclipseX = -4.0f + progress * 26.0f;
@@ -3500,7 +3544,7 @@ namespace
             CRGB silver(205, 220, 255);
             silver.nscale8_video(reveal);
             FillMachineRange(silver);
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -3517,7 +3561,7 @@ namespace
         const float facetWidth = (2.0f * kPi) / kFacetCount;
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const float t = (millis() - start) / 1000.0f;
             const float cycle = fmodf(t, 3.2f) / 3.2f;
@@ -3557,7 +3601,7 @@ namespace
                     185 + (b % 4) * 12, 170, scale8(artwork, 150));
             CRGB title = CHSV(static_cast<uint8_t>(t * 14), 120, artwork);
             FillMachineRange(title);
-            FastLED.show();
+            PublishLedFrame();
             delay(28);
         }
     }
@@ -3570,7 +3614,7 @@ namespace
         g_globalColorTakeoverActive = true;
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             if (elapsed < 5200)
@@ -3627,7 +3671,7 @@ namespace
                 for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
                     leds0[i] = CRGB::BlueViolet;
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(25);
         }
         g_globalColorTakeoverActive = false;
@@ -3649,7 +3693,7 @@ namespace
         constexpr float centerY = 6.0f;
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             const float t = elapsed / 1000.0f;
@@ -3710,7 +3754,7 @@ namespace
                 leds1[spotlights1] = CRGB(215, 230, 255);
                 leds1[spotlights2] = CRGB(255, 190, 105);
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -3721,7 +3765,7 @@ namespace
     void RunBrideAssemblyOpeningEffect(uint32_t durationMs = 12000)
     {
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
@@ -3765,7 +3809,7 @@ namespace
                     leds1[kBrideIndices[b]] += CHSV(195, 150, scale8(power, beatsin8(18, 30, 130)));
                 leds1[fronthead] += CRGB(power, power, power);
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -3776,7 +3820,7 @@ namespace
     void RunLaunchControlOpeningEffect(uint32_t durationMs = 12000)
     {
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
@@ -3827,7 +3871,7 @@ namespace
             CRGB titleColor(246, 200, 160);
             titleColor.nscale8_video(title);
             FillMachineRange(titleColor);
-            FastLED.show();
+            PublishLedFrame();
             delay(35);
         }
     }
@@ -3838,7 +3882,7 @@ namespace
     void RunCityAwakeningOpeningEffect(uint32_t durationMs = 12000)
     {
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             const float sunrise = OpeningStageAmount(elapsed, 0, 5200) / 255.0f;
@@ -3880,7 +3924,7 @@ namespace
                 color.nscale8_video(qsub8(title, i * 14));
                 leds1[theMachineFirstLed + i] = color;
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -3894,7 +3938,7 @@ namespace
         constexpr uint8_t ringLength[] = { 51, 35, 35 };
         const uint32_t start = millis();
 
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
@@ -3942,7 +3986,7 @@ namespace
                 for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
                     leds0[i] = CRGB::BlueViolet;
             }
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -3953,7 +3997,7 @@ namespace
     void RunStellarTransmissionOpeningEffect(uint32_t durationMs = 12000)
     {
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             const float t = elapsed / 1000.0f;
@@ -3999,7 +4043,7 @@ namespace
             const uint8_t accepted = OpeningStageAmount(elapsed, 9200, 1300);
             for (uint8_t b = 0; b < kBrideLedCount; ++b)
                 leds1[kBrideIndices[b]] += CRGB(0, scale8(accepted, 120), scale8(accepted, 80));
-            FastLED.show();
+            PublishLedFrame();
             delay(32);
         }
     }
@@ -4012,7 +4056,7 @@ namespace
         constexpr float heartX = 5.0f;
         constexpr float heartY = 9.0f;
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             const float t = elapsed / 1000.0f;
@@ -4071,7 +4115,7 @@ namespace
             CRGB titleColor(246, 200, 160);
             titleColor.nscale8_video(title);
             FillMachineRange(titleColor);
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -4082,7 +4126,7 @@ namespace
     void RunMoonlightRevealOpeningEffect(uint32_t durationMs = 12000)
     {
         const uint32_t start = millis();
-        while (millis() - start < durationMs)
+        while (millis() - start < durationMs && !g_sceneCancellationRequested)
         {
             const uint32_t elapsed = millis() - start;
             fill_solid(leds0, NUM_LEDS0, CRGB::Black);
@@ -4132,7 +4176,7 @@ namespace
             const uint8_t eyes = OpeningStageAmount(elapsed, 9000, 1000);
             for (uint8_t i = NUM_LEDS0 - 5; i <= NUM_LEDS0 - 2; ++i)
                 leds0[i] = CHSV(170, 120, eyes);
-            FastLED.show();
+            PublishLedFrame();
             delay(30);
         }
     }
@@ -4148,12 +4192,12 @@ namespace
 
         // Cross-fade to black (500ms)
         const uint32_t dimStart = millis();
-        while (millis() - dimStart < 500)
+        while (millis() - dimStart < 500 && !g_sceneCancellationRequested)
         {
             uint8_t blendAmt = (uint8_t)(((millis() - dimStart) * 255) / 500);
             for (uint8_t i = 0; i < NUM_LEDS1; ++i)
                 leds1[i] = blend(snapshotBefore[i], CRGB::Black, blendAmt);
-            FastLED.show();
+            PublishLedFrame();
             delay(16);
         }
 
@@ -4226,6 +4270,13 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
     auto finishStartupOpening = []() {
         if (g_startupOpeningActive)
         {
+            if (!IsLedOutputEnabled())
+            {
+                g_startupOpeningActive = false;
+                Serial.printf(
+                    "[BOOT] random opening interrupted; display remains stopped\n");
+                return;
+            }
             FadeBothStripsTo(CRGB::Black, CRGB::Black, 450);
             g_startupOpeningActive = false;
             g_allStopped = false;
@@ -4235,6 +4286,16 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
 
     for (;;)
     {
+        if (g_singleLedTestRequested)
+        {
+            g_singleLedTestRequested = false;
+            BeginExclusiveScene(CRGB::Black);
+            if (g_singleLedTestIndex < NUM_LEDS1)
+                leds1[g_singleLedTestIndex] = CRGB::White;
+            PublishLedFrame();
+            continue;
+        }
+
         // Handle sweep requests (runs from this task to avoid blocking the HTTP handler)
         if (g_sweepRequested)
         {
@@ -4276,7 +4337,7 @@ void IRAM_ATTR DrawLoopTaskEntryOne(void *)
                 leds1[kPlanetIndices[i]] = kPlanetBaseColors[i];
             for (uint8_t i = 0; i < kBrideLedCount; ++i)
                 leds1[kBrideIndices[i]] = CRGB(45, 15, 80);
-            FastLED.show();
+            PublishLedFrame();
 
             // Stay paused so result is visible; /resume to continue
             continue;
@@ -4606,7 +4667,9 @@ void IRAM_ATTR DrawLoopTaskEntryTwo(void *)
         if (g_awakeningRequested)
         {
             g_awakeningRequested = false;
+            g_sceneCancellationRequested = false;
             g_allStopped = false;   // resume other tasks
+            SetLedOutputEnabled(true);
             RunAwakeningMode();
         }
 
@@ -4644,7 +4707,9 @@ void IRAM_ATTR DrawLoopTaskEntryThree(void *)
         if (g_jackpotCelebrationRequested)
         {
             g_jackpotCelebrationRequested = false;
+            g_sceneCancellationRequested = false;
             g_allStopped = false;   // resume other tasks
+            SetLedOutputEnabled(true);
             RunJackpotCelebration();
             ResetJackpotRuntime(JackpotMode::Classic, millis());
         }
@@ -4680,7 +4745,9 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
         if (g_openingShowcaseRequested)
         {
             g_openingShowcaseRequested = false;
+            g_sceneCancellationRequested = false;
             g_allStopped = true;
+            SetLedOutputEnabled(true);
             FadeBothStripsTo(CRGB::Black, CRGB::Black, 500);
             currentActiveMode = MachineMode::Showcase;
             currentMode = MachineMode::Showcase;
@@ -4725,7 +4792,7 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
 
             const uint32_t kCrossFadeMs = 1000;
             const uint32_t fadeStart = millis();
-            while (millis() - fadeStart < kCrossFadeMs)
+            while (millis() - fadeStart < kCrossFadeMs && !g_sceneCancellationRequested)
             {
                 if (g_allStopped || g_globalHeartActive) break;
 
@@ -4739,7 +4806,7 @@ void IRAM_ATTR DrawLoopTaskEntryFour(void *)
                     uint8_t idx = theMachineFirstLed + i;
                     leds1[idx] = blend(snapshot[i], leds1[idx], blendAmt);
                 }
-                FastLED.show();
+                PublishLedFrame();
                 delay(16); // ~60 fps
             }
         }

@@ -113,3 +113,6 @@ GET http://192.168.10.99/awakening
 
 ### Resume normal animations after testing a mode
 GET http://192.168.10.99/resume
+
+### Runtime diagnostics
+GET http://192.168.10.99/status

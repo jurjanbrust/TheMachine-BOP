@@ -5,6 +5,7 @@
 #include "network.h"                            // For WiFi credentials
 #include "drawing.h"
 #include "apiwebserver.h"
+#include "ledrenderer.h"
 
 //
 // Task Handles to our running threads
@@ -17,6 +18,7 @@ TaskHandle_t g_taskHeart  = nullptr;
 TaskHandle_t g_taskJackpot = nullptr;
 TaskHandle_t g_taskMachine = nullptr;
 TaskHandle_t g_taskSerial = nullptr;
+TaskHandle_t g_taskLedRender = nullptr;
 TaskHandle_t g_taskDebug  = nullptr;
 TaskHandle_t g_taskAudio  = nullptr;
 TaskHandle_t g_taskNet    = nullptr;
@@ -81,6 +83,7 @@ void ProcessSerialSceneCommand()
         if (command.length() == 0)
             continue;
 
+        bool accepted = true;
         if (command == "1" || command.equalsIgnoreCase("vortex"))
             RunQuantumVortex();
         else if (command == "2" || command.equalsIgnoreCase("lightning"))
@@ -121,12 +124,33 @@ void ProcessSerialSceneCommand()
             RunPulseOfLifeOpening();
         else if (command == "19" || command.equalsIgnoreCase("opening-moonlight"))
             RunMoonlightRevealOpening();
+        else if (command.equalsIgnoreCase("stop"))
+            SetAllStopped(true);
         else if (command.equalsIgnoreCase("resume"))
             SetAllStopped(false);
+        else if (command.equalsIgnoreCase("status"))
+        {
+            Serial.printf(
+                "[STATUS] stopped=%u output=%u cancel=%u opening=%u brightness=%u "
+                "frames=%lu wifi=%u reconnects=%lu heap=%u\n",
+                AreAnimationsStopped(),
+                IsLedOutputEnabled(),
+                IsSceneCancellationPending(),
+                GetStartupOpeningSelection(),
+                GetLedBrightness(),
+                static_cast<unsigned long>(GetPublishedFrameCount()),
+                WiFi.isConnected(),
+                static_cast<unsigned long>(GetNetworkReconnectCount()),
+                ESP.getFreeHeap());
+        }
         else
+        {
+            accepted = false;
             Serial.printf("[SERIAL] unknown command: %s\n", command.c_str());
+        }
 
-        Serial.printf("[SERIAL] command accepted: %s\n", command.c_str());
+        if (accepted)
+            Serial.printf("[SERIAL] command accepted: %s\n", command.c_str());
         command = "";
     }
 }
@@ -180,18 +204,22 @@ void setup() {
     // Re-route debug output to the serial port
     Debug.setSerialEnabled(true);
 
-    Serial.printf("[BOOT] registering LED strips\n");
-    FastLED.addLeds<WS2812B, LED_PIN0, GRB>(leds0, NUM_LEDS0);  // been
-
-    FastLED.addLeds<WS2812B, LED_PIN1, GRB>(leds1, NUM_LEDS1);  // overig
     const uint8_t startupBrightness = LoadSavedBrightness();
-    FastLED.setBrightness(startupBrightness);
-    Serial.printf("[BOOT] brightness=%u\n", startupBrightness);
+    Serial.printf("[BOOT] registering LED strips\n");
+    InitializeLedRenderer(startupBrightness);
+    Serial.printf("[BOOT] brightness=%u, power limit=%umA\n",
+                  startupBrightness, kLedPowerLimitMilliamps);
 
     // Start dark; one of the nine theatrical openings owns both strips.
     fill_solid(leds0, NUM_LEDS0, CRGB::Black);
     fill_solid(leds1, NUM_LEDS1, CRGB::Black);
-    FastLED.show();
+    PublishLedFrame();
+    const BaseType_t ledRenderResult = xTaskCreatePinnedToCore(
+        LedRenderTaskEntry, "LED Render", STACK_SIZE, nullptr,
+        LED_RENDER_PRIORITY, &g_taskLedRender, DRAWING_CORE);
+    Serial.printf("[BOOT] LED render task=%ld (pdPASS=%ld)\n",
+                  static_cast<long>(ledRenderResult),
+                  static_cast<long>(pdPASS));
     const uint8_t startupOpening = PrepareRandomStartupOpening();
     Serial.printf("[BOOT] randomly selected opening %u of 9\n", startupOpening);
 
@@ -222,11 +250,12 @@ void setup() {
     Serial.printf("[BOOT] debug task=%ld (pdPASS=%ld)\n",
                   static_cast<long>(debugResult), static_cast<long>(pdPASS));
 
-    Serial.printf("[BOOT] starting WiFi connection; LED tasks are already running\n");
-    if (!WiFi.isConnected() && !ConnectToWiFi(10))
-    {
-        Serial.printf("[BOOT] WiFi not connected; LED animations continue\n");
-    }
+    const BaseType_t networkResult = xTaskCreatePinnedToCore(
+        NetworkLoopTaskEntry, "Network", STACK_SIZE, nullptr,
+        NET_PRIORITY, &g_taskNet, NET_CORE);
+    Serial.printf(
+        "[BOOT] background network task=%ld (pdPASS=%ld); setup complete\n",
+        static_cast<long>(networkResult), static_cast<long>(pdPASS));
 }
 
 void loop() {

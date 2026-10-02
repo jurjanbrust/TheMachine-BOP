@@ -25,6 +25,7 @@
 #define NET_PRIORITY            tskIDLE_PRIORITY+2
 #define DEBUG_PRIORITY          tskIDLE_PRIORITY+1
 #define REMOTE_PRIORITY         tskIDLE_PRIORITY+1
+#define LED_RENDER_PRIORITY     tskIDLE_PRIORITY+4
 
 #define DRAWING_CORE            1
 #define NET_CORE                0
@@ -43,6 +44,7 @@ extern CRGB leds0[];    // been
 extern CRGB leds1[];    // overig
 
 constexpr uint8_t kDefaultBrightness = 100;
+constexpr uint16_t kLedPowerLimitMilliamps = 3000;
 
 uint8_t LoadSavedBrightness();
 void SaveBrightness(uint8_t value);

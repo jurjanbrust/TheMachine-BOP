@@ -2,6 +2,7 @@
 .vscode/**
 src/uzlib/src/*.o
 .history
+__pycache__/
 include/secrets.h
 lib/*
 

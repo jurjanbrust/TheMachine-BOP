@@ -5,6 +5,32 @@
 
 extern DRAM_ATTR ApiWebServer g_WebServer;
 
+namespace
+{
+    constexpr uint32_t kReconnectDelayMinMs = 5000;
+    constexpr uint32_t kReconnectDelayMaxMs = 60000;
+    volatile bool g_networkServicesStarted = false;
+    volatile uint32_t g_networkReconnectCount = 0;
+
+    void StartNetworkServices()
+    {
+        if (g_networkServicesStarted)
+            return;
+
+        #if ENABLE_OTA
+            Serial.printf("[NET] publishing OTA\n");
+            SetupOTA(cszHostname);
+        #endif
+
+        #if ENABLE_WEBSERVER
+            Serial.printf("[NET] starting HTTP server\n");
+            g_WebServer.begin();
+        #endif
+
+        g_networkServicesStarted = true;
+    }
+}
+
 // processRemoteDebugCmd
 // 
 // Callback function that the debug library (which exposes a little console over telnet and serial) calls
@@ -62,20 +88,75 @@ bool ConnectToWiFi(uint cRetries)
         return false;
     }
 
-    #if ENABLE_OTA
-        Serial.printf("Publishing OTA...");
-        SetupOTA(cszHostname);
-    #endif
-
-    Serial.printf("Received IP: %s", WiFi.localIP().toString().c_str());
-
-    #if ENABLE_WEBSERVER
-        debugI("Starting Web Server...");
-        g_WebServer.begin();
-        debugI("Web Server begin called!");
-    #endif
+    Serial.printf("[NET] connected, IP=%s\n",
+                  WiFi.localIP().toString().c_str());
+    StartNetworkServices();
 
     return true;
+}
+
+void NetworkLoopTaskEntry(void *)
+{
+    #if !ENABLE_WIFI
+        vTaskDelete(nullptr);
+        return;
+    #endif
+
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
+    WiFi.setAutoReconnect(true);
+
+    uint32_t reconnectDelayMs = kReconnectDelayMinMs;
+    bool wasConnected = false;
+
+    for (;;)
+    {
+        if (WiFi.isConnected())
+        {
+            if (!wasConnected)
+            {
+                wasConnected = true;
+                reconnectDelayMs = kReconnectDelayMinMs;
+                Serial.printf("[NET] connection available, RSSI=%d dBm\n",
+                              WiFi.RSSI());
+                StartNetworkServices();
+            }
+            delay(1000);
+            continue;
+        }
+
+        if (wasConnected)
+        {
+            wasConnected = false;
+            Serial.printf("[NET] connection lost; reconnecting in background\n");
+        }
+
+        ++g_networkReconnectCount;
+        Serial.printf("[NET] reconnect attempt %lu\n",
+                      static_cast<unsigned long>(g_networkReconnectCount));
+        if (ConnectToWiFi(1))
+        {
+            wasConnected = true;
+            reconnectDelayMs = kReconnectDelayMinMs;
+            continue;
+        }
+
+        Serial.printf("[NET] retry in %lu ms\n",
+                      static_cast<unsigned long>(reconnectDelayMs));
+        delay(reconnectDelayMs);
+        reconnectDelayMs = min(
+            reconnectDelayMs * 2, kReconnectDelayMaxMs);
+    }
+}
+
+bool NetworkServicesStarted()
+{
+    return g_networkServicesStarted;
+}
+
+uint32_t GetNetworkReconnectCount()
+{
+    return g_networkReconnectCount;
 }
 
 // SetupOTA
@@ -150,5 +231,4 @@ void SetupOTA(const char *pszHostname)
 
     ArduinoOTA.begin();
 }
-
 

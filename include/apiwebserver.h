@@ -4,6 +4,8 @@
 #include <ArduinoOTA.h>             // Over-the-air helper object so we can be flashed via WiFi
 #include "globals.h"
 #include "drawing.h"
+#include "ledrenderer.h"
+#include "network.h"
 
 using namespace fs;
 
@@ -12,6 +14,39 @@ class ApiWebServer
   private:
 
     AsyncWebServer _server;
+
+    void sendResponse(AsyncWebServerRequest * request,
+                      int status,
+                      const char * contentType,
+                      const String & content)
+    {
+        AsyncWebServerResponse * response =
+            request->beginResponse(status, contentType, content);
+        response->addHeader("Access-Control-Allow-Origin", "*");
+        request->send(response);
+    }
+
+    bool parseUnsignedParam(AsyncWebServerRequest * request,
+                            const char * name,
+                            uint32_t maximum,
+                            uint32_t & value)
+    {
+        if (!request->hasParam(name, false, false))
+            return false;
+
+        const String text =
+            request->getParam(name, false, false)->value();
+        if (text.length() == 0)
+            return false;
+
+        char * end = nullptr;
+        const unsigned long parsed = strtoul(text.c_str(), &end, 10);
+        if (end == text.c_str() || *end != '\0' || parsed > maximum)
+            return false;
+
+        value = static_cast<uint32_t>(parsed);
+        return true;
+    }
 
   public:
 
@@ -55,6 +90,7 @@ class ApiWebServer
         _server.on("/opening-transmission", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->transmissionOpening(pRequest); });
         _server.on("/opening-pulse",    HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->pulseOpening(pRequest); });
         _server.on("/opening-moonlight", HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->moonlightOpening(pRequest); });
+        _server.on("/status",          HTTP_GET, [this](AsyncWebServerRequest * pRequest) { this->status(pRequest); });
 
         _server.begin();
         debugI("HTTP server started");
@@ -62,55 +98,33 @@ class ApiWebServer
 
     void setLed(AsyncWebServerRequest * pRequest)
     {
-        ColorFillEffect(CRGB::Black, NUM_LEDS1, 1);
-
-        const char * pszEffectIndex = "index";
-        if (pRequest->hasParam(pszEffectIndex, false, false))
+        uint32_t index = 0;
+        if (!parseUnsignedParam(pRequest, "index", NUM_LEDS1 - 1, index))
         {
-          debugI("processRequest: param found");
-          AsyncWebParameter * p = pRequest->getParam(pszEffectIndex, false, false);
-          size_t index = strtoul(p->value().c_str(), NULL, 10); 
-          debugI("index = %d", index);
-          if (index < NUM_LEDS1)
-          {
-              leds1[index] = CRGB::White;
-              FastLED.show();
-          }
-          else
-          {
-              debugW("setLed: index %u out of range (NUM_LEDS1=%u)", index, NUM_LEDS1);
-          }
-        } 
-        else 
-        {
-            debugI("processRequest: param not found");
+            sendResponse(pRequest, 400, "application/json",
+                         "{\"error\":\"index must be between 0 and 120\"}");
+            return;
         }
-        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
-        pResponse->addHeader("Access-Control-Allow-Origin", "*");
-        pRequest->send(pResponse);      
+
+        RunSingleLedTest(static_cast<uint8_t>(index));
+        sendResponse(pRequest, 202, "application/json",
+                     "{\"accepted\":true}");
     }
 
     void setBrightness(AsyncWebServerRequest * pRequest)
     {
-        const char * pszEffectIndex = "value";
-        if (pRequest->hasParam(pszEffectIndex, false, false))
+        uint32_t value = 0;
+        if (!parseUnsignedParam(pRequest, "value", 255, value))
         {
-          debugI("processRequest: param found");
-          AsyncWebParameter * p = pRequest->getParam(pszEffectIndex, false, false);
-          size_t value = strtoul(p->value().c_str(), NULL, 10); 
-          debugI("value = %d", value);
-          uint8_t brightness = static_cast<uint8_t>(constrain(value, 0, 255));
-          FastLED.setBrightness(brightness);
-          SaveBrightness(brightness);
-          FastLED.show();
-        } 
-        else 
-        {
-            debugI("processRequest: param not found");
+            sendResponse(pRequest, 400, "application/json",
+                         "{\"error\":\"value must be between 0 and 255\"}");
+            return;
         }
-        AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
-        pResponse->addHeader("Access-Control-Allow-Origin", "*");
-        pRequest->send(pResponse);      
+
+        SetLedBrightness(static_cast<uint8_t>(value));
+        SaveBrightness(static_cast<uint8_t>(value));
+        sendResponse(pRequest, 200, "application/json",
+                     "{\"updated\":true}");
     }
 
     void triggerJackpot(AsyncWebServerRequest * pRequest)
@@ -151,18 +165,55 @@ class ApiWebServer
 
     void sweep(AsyncWebServerRequest * pRequest)
     {
-        // dir: 0=L→R, 1=R→L, 2=T→B, 3=B→T, 4=outer→inner, 5=inner→outer
-        uint8_t dir = 0;
-        if (pRequest->hasParam("dir", false, false))
+        uint32_t dir = 0;
+        if (!parseUnsignedParam(pRequest, "dir", 8, dir))
         {
-            AsyncWebParameter * p = pRequest->getParam("dir", false, false);
-            dir = static_cast<uint8_t>(strtoul(p->value().c_str(), NULL, 10));
+            sendResponse(pRequest, 400, "application/json",
+                         "{\"error\":\"dir must be between 0 and 8\"}");
+            return;
         }
-        debugI("Sweep triggered via API: dir=%u", dir);
-        RunSweep(dir);
+        debugI("Sweep triggered via API: dir=%u",
+               static_cast<unsigned>(dir));
+        RunSweep(static_cast<uint8_t>(dir));
         AsyncWebServerResponse * pResponse = pRequest->beginResponse(200);
         pResponse->addHeader("Access-Control-Allow-Origin", "*");
         pRequest->send(pResponse);
+    }
+
+    void status(AsyncWebServerRequest * pRequest)
+    {
+        String json;
+        json.reserve(320);
+        json += "{\"uptimeMs\":";
+        json += millis();
+        json += ",\"animationsStopped\":";
+        json += AreAnimationsStopped() ? "true" : "false";
+        json += ",\"cancellationPending\":";
+        json += IsSceneCancellationPending() ? "true" : "false";
+        json += ",\"startupOpening\":";
+        json += GetStartupOpeningSelection();
+        json += ",\"schedulerRemainingMs\":";
+        json += GetSchedulerRemainingMs();
+        json += ",\"brightness\":";
+        json += GetLedBrightness();
+        json += ",\"publishedFrames\":";
+        json += GetPublishedFrameCount();
+        json += ",\"powerLimitMilliamps\":";
+        json += GetLedPowerLimitMilliamps();
+        json += ",\"outputEnabled\":";
+        json += IsLedOutputEnabled() ? "true" : "false";
+        json += ",\"wifiConnected\":";
+        json += WiFi.isConnected() ? "true" : "false";
+        json += ",\"wifiRssi\":";
+        json += WiFi.isConnected() ? WiFi.RSSI() : 0;
+        json += ",\"networkServicesStarted\":";
+        json += NetworkServicesStarted() ? "true" : "false";
+        json += ",\"networkReconnects\":";
+        json += GetNetworkReconnectCount();
+        json += ",\"freeHeap\":";
+        json += ESP.getFreeHeap();
+        json += "}";
+        sendResponse(pRequest, 200, "application/json", json);
     }
 
     void radialPulse(AsyncWebServerRequest * pRequest)

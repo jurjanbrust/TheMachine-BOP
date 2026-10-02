@@ -43,6 +43,11 @@ void RunStellarTransmissionOpening();
 void RunPulseOfLifeOpening();
 void RunMoonlightRevealOpening();
 uint8_t PrepareRandomStartupOpening();
+void RunSingleLedTest(uint8_t index);
+bool AreAnimationsStopped();
+bool IsSceneCancellationPending();
+uint8_t GetStartupOpeningSelection();
+uint32_t GetSchedulerRemainingMs();
 void FlickerSpotlight(uint8_t index, const CRGB & color);
 void FlickerSpotlights(uint8_t indexA, uint8_t indexB, const CRGB & color);
 

@@ -12,7 +12,12 @@ This document describes the hardware layout, LED zones, animation modes, and arc
   - **Strip 0 (`leds0`, pin 14):** 53 LEDs — Jackpot segments (8 × 6 = 48 LEDs) + eyes (4 LEDs) + heart (1 LED). Referred to as "been" (legs).
   - **Strip 1 (`leds1`, pin 12):** 121 LEDs — All backglass/topper artwork elements. Referred to as "overig" (other).
 - **Default brightness:** 100 (saved to NVS flash via `Preferences`, adjustable at runtime through the HTTP API).
+- **Power budget:** 3000 mA at 5 V, enforced by FastLED. Adjust
+  `kLedPowerLimitMilliamps` only after checking the installed power supply and
+  wiring.
 - **Connectivity:** WiFi, OTA updates, RemoteDebug telnet, HTTP API on port 80.
+  WiFi reconnects in a background task with exponential backoff; LED startup
+  never waits for the network.
 
 ---
 
@@ -84,7 +89,10 @@ These are the individually-addressable artwork elements on the backglass:
 
 ## Animation Threads
 
-The display runs four concurrent FreeRTOS tasks on core 1, plus a heartbeat task:
+Animation logic runs in four FreeRTOS tasks on core 1. These tasks update the
+composition buffers and call `PublishLedFrame()`. One higher-priority
+`LedRenderTaskEntry` owns the physical FastLED buffers and is the only code
+allowed to call `FastLED.show()`, capped at roughly 60 FPS.
 
 | Task | Function | What It Drives |
 |---|---|---|
@@ -92,6 +100,11 @@ The display runs four concurrent FreeRTOS tasks on core 1, plus a heartbeat task
 | **Heart** | `DrawLoopTaskEntryTwo` | Heartbeat LED + periodic global heart mode |
 | **Jackpot** | `DrawLoopTaskEntryThree` | Jackpot ring animations (strip 0) |
 | **TheMachine** | `DrawLoopTaskEntryFour` | "The Machine" logo animations |
+| **LED Render** | `LedRenderTaskEntry` | Publishes coherent frames to both physical strips |
+
+Long-running scenes check `g_sceneCancellationRequested` each frame. A new
+manual scene or `stop` therefore interrupts the current scene without waiting
+for its full duration.
 
 ---
 
@@ -294,6 +307,28 @@ Storm, Multiball, Spotlight Cone, Spatial Meteor, Crimson Takeover** (10 total)
 
 ---
 
+## Latest Hardware Ratings
+
+Scores are from player-facing evaluation on the physical topper. Prefer
+high-rated scenes for automatic scheduling; keep lower-rated scenes manual.
+
+| Special scene | Score | Opening scene | Score |
+|---|---:|---|---:|
+| Quantum Vortex | 7 | Improved Showcase | 6 |
+| Lightning Storm | 9 | Cosmic Alignment | 8 |
+| Neon Rings | 6 | Bride Assembly | 8 |
+| Artwork Story | 10 | Launch Control | 8 |
+| Fireworks | 5 | City Awakening | 6 |
+| Laser Matrix | 8 | System Diagnostics | 7 |
+| Ghost Bride | 7 | Stellar Transmission | 8 |
+| Multiball | 9 | Pulse of Life | 9 |
+| Solar Eclipse | 7 | Moonlight Reveal | 9 |
+| Prism Shatter | 6 | | |
+
+Crimson Takeover has not yet received a hardware score.
+
+---
+
 ## Static Startup State
 
 On boot, both strips start fully dark and `PrepareRandomStartupOpening()` uses
@@ -306,6 +341,7 @@ The opening pool is: Improved Fluorescent Showcase, Cosmic Alignment, Bride
 Assembly, Launch Control, City Awakening, System Diagnostics, Stellar
 Transmission, Pulse of Life and Moonlight Reveal. All openings can also be
 replayed using serial commands `11` through `19` or their HTTP endpoints.
+USB serial also accepts `stop`, `resume`, and `status`.
 
 ---
 
@@ -320,7 +356,9 @@ replayed using serial commands `11` through `19` or their HTTP endpoints.
 | `/stop` | GET | *(none)* | Stops all animations, turns off all LEDs |
 | `/resume` | GET | *(none)* | Resumes normal animation after stop |
 | `/sweep` | GET | `dir` (0–8) | Spatial sweep fill: 0=L→R, 1=R→L, 2=T→B, 3=B→T, 4=outer→inner, 5=inner→outer, 6=diag TL→BR, 7=diag TR→BL, 8=diag BR→TL |
-| `/radialpulse` | GET | *(none)* | Sonar-like ripple expanding from center of grid outward (3 concentric rings with rainbow tint) |\n| `/plasma` | GET | *(none)* | 10-second spatial plasma / lava lamp effect using 2D sine waves across the grid |\n| `/rain` | GET | *(none)* | 10-second rain effect — drops of cyan light fall down random columns with fading trails |
+| `/radialpulse` | GET | *(none)* | Sonar-like ripple expanding from center of grid outward (3 concentric rings with rainbow tint) |
+| `/plasma` | GET | *(none)* | 10-second spatial plasma / lava lamp effect using 2D sine waves across the grid |
+| `/rain` | GET | *(none)* | 10-second rain effect — drops of cyan light fall down random columns with fading trails |
 | `/breathinggrid` | GET | *(none)* | 10-second diagonal breathing wave — all LEDs breathe with spatial phase offset creating a rolling brightness wave |
 | `/spotlightcone` | GET | *(none)* | 10-second spotlight cone effect — two spotlights cast pulsing light cones (warm amber + cool white) across the panel |
 | `/spatialmeteor` | GET | *(none)* | 10-second spatial meteor shower — up to 5 meteors travel at diagonal angles across the grid with fading trails |
@@ -344,6 +382,7 @@ replayed using serial commands `11` through `19` or their HTTP endpoints.
 | `/opening-transmission` | GET | *(none)* | 12-second Stellar Transmission opening — star field, scanning signal, planet lock and decoded title |
 | `/opening-pulse` | GET | *(none)* | 12-second Pulse of Life opening — double heartbeat pulses across both strips before the bride and title awaken |
 | `/opening-moonlight` | GET | *(none)* | 12-second Moonlight Reveal opening — moonbeam uncovers the bride, silver title and eyes |
+| `/status` | GET | *(none)* | JSON diagnostics: animation state, opening, scheduler, brightness, frame count, power budget, WiFi and heap |
 
 ---
 
@@ -352,6 +391,7 @@ replayed using serial commands `11` through `19` or their HTTP endpoints.
 - **Framework:** Arduino (PlatformIO)
 - **WiFi credentials:** defined in `include/secrets.h` (see `secrets.example.h` for template)
 - **Feature flags** (in `globals.h`): `ENABLE_OTA`, `ENABLE_WIFI`, `ENABLE_WEBSERVER` — all enabled by default
+- **Layout tests:** `python3 -m unittest discover -s tests -v`
 
 ---
 
